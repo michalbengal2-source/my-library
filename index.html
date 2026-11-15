@@ -73,6 +73,12 @@
   .blurb .series { margin:8px 0 0; }
   .blurb .new { margin:8px 0 0; color:var(--red); font-weight:bold; }
   .upnext { text-align:center; margin:2em 0 0; }
+  .upnext .btn { margin:4px 0; }
+  ul.groups { list-style:none; padding:0; margin:0; font-size:var(--ls); }
+  ul.groups li { display:flex; justify-content:space-between; align-items:baseline; border:1px solid var(--line); box-shadow:1px 1px 3px #0001; padding:12px 14px; margin-bottom:10px; }
+  ul.groups a { font:1.25em var(--serif); }
+  .gctl { display:flex; gap:6px; align-items:center; margin-top:10px; padding-top:8px; border-top:1px dotted #bbb; }
+  .gctl span { flex:1; }
   .upnext select { max-width:70vw; margin-top:8px; font-size:.85rem; }
 
   /* Bookshelf */
@@ -83,7 +89,7 @@
   ul.actions { list-style:none; padding:0; margin:6px 0 10px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
   ul.actions select { max-width:46vw; }
   ul.tools { gap:4px; margin-top:-2px; }
-  ul.tools button { font-size:.78rem; padding:.15em .6em; }
+  ul.tools button, ul.tools .btn, ul.tools select { font-size:.78rem; padding:.15em .6em; }
   .wrapper { border:1px solid var(--line); box-shadow:1px 1px 5px #aaa; padding:.6em 1em; margin:.6em 0 1.5em; }
   dl.meta { margin:0; }
   dl.meta dt { margin-top:.6em; }
@@ -125,6 +131,7 @@
   <nav class="tabs">
     <button data-do="go" data-arg="" data-tab="">Works</button>
     <button data-do="go" data-arg="shelf" data-tab="shelf">Bookshelf</button>
+    <button data-do="go" data-arg="groups" data-tab="groups">Collections</button>
   </nav>
 </header>
 <main id="main"></main>
@@ -144,7 +151,7 @@
 "use strict";
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
-let key = null, index = [], cache = {}, covers = {}, hiddenAt = 0;
+let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
 
 /* ---------- Local storage (IndexedDB) ---------- */
 const dbp = new Promise((ok, no) => {
@@ -179,6 +186,8 @@ async function unseal(k, u) {
   return JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12))));
 }
 const saveIndex = async () => put('index', await seal(key, index));
+const saveGroups = async () => put('groups', await seal(key, groups));   // collections, encrypted like everything else
+const groupById = id => groups.find(g => g.id === id);
 const getCover = async id => covers[id] ??= await unseal(key, await get('c:' + id));
 
 /* ---------- Small helpers ---------- */
@@ -249,13 +258,16 @@ function splitChapters(box) {
 
 /* ---------- Unlock and lock ---------- */
 async function start() {
-  key = null; index = []; cache = {}; covers = {}; main.innerHTML = '';
+  key = null; index = []; groups = []; cache = {}; covers = {}; main.innerHTML = '';
   document.body.classList.remove('open');
   const salt = await get('salt');
   if (!salt) return showWelcome();
   for (let err = ''; !key;) {
     const pw = await askPassword('Enter your password to open the library', false, err);
-    try { const k = await deriveKey(pw || '', salt); index = await unseal(k, await get('index')); key = k; }
+    try {
+      const k = await deriveKey(pw || '', salt), g = await get('groups');
+      index = await unseal(k, await get('index')); groups = g ? await unseal(k, g) : []; key = k;
+    }
     catch { err = 'Wrong password, try again'; }
   }
   enter();
@@ -375,15 +387,44 @@ const actions = {
     for (const m of added) for (const k of ['w:' + m.id, 'c:' + m.id])
       if (data[k]) await put(k, await seal(key, await unseal(bk, data[k])));
     index.push(...added); await saveIndex();
+    const bg = data.groups ? await unseal(bk, data.groups) : [];
+    groups.push(...bg.filter(g => !groupById(g.id))); await saveGroups();
     toast(`${added.length} works added from the backup`); route();
   },
   async remove(id) {
     if (!confirm('Delete this work from your library?')) return;
     await Promise.all([del('w:' + id), del('c:' + id)]);
     index = index.filter(m => m.id !== id); await saveIndex();
+    groups.forEach(g => g.ids = g.ids.filter(x => x !== id)); await saveGroups();
     location.hash = '';
   },
+  async newGroup() { if (await makeGroup()) route(); },
+  async renameGroup(id) {
+    const g = groupById(id), name = prompt('New name for this collection', g.name);
+    if (name?.trim()) { g.name = name.trim(); await saveGroups(); route(); }
+  },
+  async deleteGroup(id) {
+    if (!confirm('Delete this collection? The works stay in your library.')) return;
+    groups = groups.filter(g => g.id !== id); await saveGroups();
+    location.hash = 'groups';
+  },
+  async moveInGroup(arg) {
+    const [gid, wid, d] = arg.split(','), ids = groupById(gid).ids, i = ids.indexOf(wid), j = i + +d;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]]; await saveGroups(); route();
+  },
+  async leaveGroup(arg) {
+    const [gid, wid] = arg.split(','), g = groupById(gid);
+    g.ids = g.ids.filter(x => x !== wid); await saveGroups(); route();
+  },
 };
+async function makeGroup() {
+  const name = prompt('Name for the new collection');
+  if (!name?.trim()) return null;
+  const g = { id: crypto.randomUUID(), name: name.trim(), ids: [] };
+  groups.push(g); await saveGroups();
+  return g;
+}
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-do]');
   if (b) actions[b.dataset.do](b.dataset.arg);
@@ -395,6 +436,15 @@ main.addEventListener('dblclick', e => {   // double tap on the text toggles ful
 document.addEventListener('fullscreenchange', () => document.body.classList.toggle('full', !!document.fullscreenElement));
 main.addEventListener('change', e => {
   if (e.target.matches('.chsel')) location.hash = e.target.value;
+  if (e.target.matches('.grpsel')) (async () => {
+    const wid = e.target.dataset.id, g = e.target.value === 'new' ? await makeGroup() : groupById(e.target.value);
+    if (g) {
+      const i = g.ids.indexOf(wid);
+      i < 0 ? g.ids.push(wid) : g.ids.splice(i, 1);
+      await saveGroups(); toast(`${i < 0 ? 'Added to' : 'Removed from'} ${g.name}`);
+    }
+    route();
+  })();
   if (e.target.matches('.nextsel')) { index.find(m => m.id === e.target.dataset.id).next = e.target.value; saveIndex(); route(); }
 });
 const size = k => +pref(k) || { fs: 16, ls: 13 }[k];
@@ -404,7 +454,7 @@ const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.styl
 function route() {
   if (!key) return;
   const [view, id, ch] = location.hash.slice(1).split('/');
-  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === view));
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === (view === 'g' ? 'groups' : view)));
   scrollTo(0, 0);
   updatePos();
   document.body.classList.remove('hide-bar');
@@ -414,6 +464,8 @@ function route() {
   if (view === 'w') return showWork(id, ch).then(() => { if (y) scrollTo(0, y * document.documentElement.scrollHeight); updatePos(); savePlace(); });
   savePlace();
   if (view === 'shelf') return showShelf();
+  if (view === 'groups') return showGroups();
+  if (view === 'g') return showGroup(id);
   if (view === 'settings') return showSettings();
   showList();
 }
@@ -470,7 +522,7 @@ function nextOf(m) {
   }
 }
 
-function blurb(m) {
+function blurb(m, extra = '') {
   const tag = (gi, t) => `<span class="tag" data-k="${esc(gi + '|' + t)}">${esc(t)}</span>`;
   const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi, t)}</li>`).join('');
   const lang = tagsOf(m, /^language/i).join(', ');
@@ -482,10 +534,11 @@ function blurb(m) {
     <ul class="tags">${group(1, 'warnings')}${group(5, '')}${group(4, '')}${group(6, '')}</ul>
     ${m.summary ? `<blockquote class="summary">${m.summary}</blockquote>` : ''}
     ${seriesOf(m).map(s => `<p class="series">Part <b>${s.part}</b> of <b>${esc(s.name)}</b></p>`).join('')}
+    ${groups.filter(g => g.ids.includes(m.id)).map(g => `<p class="series">Part <b>${g.ids.indexOf(m.id) + 1}</b> of <a href="#g/${g.id}"><b>${esc(g.name)}</b></a></p>`).join('')}
     ${m.newFrom != null && (m.last ?? -1) < m.newFrom ? `<p class="new">✦ ${m.count - m.newFrom} new chapter${m.count - m.newFrom > 1 ? 's' : ''}</p>` : ''}
     <dl class="stats">${lang ? `<dt>Language:</dt> <dd>${esc(lang)}</dd>` : ''}
       <dt>Words:</dt> <dd>${esc(m.words)}</dd> <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
-      <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>
+      <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>${extra}
   </li>`;
 }
 
@@ -497,7 +550,7 @@ const SORTS = {
 const authorsOf = m => m.author.split(/,\s+|\s+and\s+/).filter(Boolean);
 const GROUPS = [['Ratings', /^rating/i], ['Warnings', /^archive warning/i], ['Categories', /^categor/i], ['Fandoms', /^fandom/i],
   ['Characters', /^character/i], ['Relationships', /^relationship/i], ['Additional Tags', /^additional/i]]
-  .map(([g, re]) => [g, m => tagsOf(m, re)]).concat([['Authors', authorsOf]]);
+  .map(([g, re]) => [g, m => tagsOf(m, re)]).concat([['Authors', authorsOf], ['Collections', m => groups.filter(g => g.ids.includes(m.id)).map(g => g.name)]]);
 const filters = { inc: new Set(), exc: new Set() }, openG = new Set();   // kept in memory only, never saved unencrypted
 let panelOpen = false;
 const hasTag = (m, k) => { const i = k.indexOf('|'); return GROUPS[k.slice(0, i)][1](m).includes(k.slice(i + 1)); };
@@ -509,7 +562,7 @@ const countsOf = get => {   // [tag, number of works], most common first
 };
 
 /* Quick pick lists above the results: title, fandom, author, tag (they share state with the Filters panel) */
-const PICKS = [['fandoms', [3]], ['authors', [7]], ['tags', [5, 4, 6]]];
+const PICKS = [['fandoms', [3]], ['authors', [7]], ['tags', [5, 4, 6]], ['collections', [8]]];
 let titleId = '';
 function picks() {
   const opt = (v, label, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(label)}</option>`;
@@ -622,6 +675,8 @@ async function showWork(id, ch) {
       <li><button data-do="size" data-arg="fs,-1">A−</button></li><li><button data-do="size" data-arg="fs,1">A+</button></li>
       <li><button data-do="cover" data-arg="${id}">${m.cover ? 'Change Cover' : 'Add Cover'}</button></li>
       ${m.cover ? `<li><button data-do="uncover" data-arg="${id}">Remove Cover</button></li>` : ''}
+      <li><select class="grpsel" data-id="${id}"><option value="">Collections…</option>${groups.map(g =>
+        `<option value="${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}<option value="new">+ New collection</option></select></li>
       <li><button data-do="add" data-arg="${id}">Update</button></li>
       <li><button data-do="remove" data-arg="${id}">Delete</button></li>
     </ul>
@@ -644,10 +699,40 @@ async function showWork(id, ch) {
     <ul class="actions">${nav}<li><button data-do="top">↑ Top</button></li></ul>`;
 }
 
+function showGroups() {
+  document.title = 'Collections';
+  main.innerHTML = `<div class="toolbar"><button data-do="newGroup">+ New Collection</button></div>
+    <h2 class="heading">${groups.length} Collection${groups.length === 1 ? '' : 's'}</h2>
+    <ul class="groups">${groups.map(g => `<li><a href="#g/${g.id}">${esc(g.name)}</a>
+      <span class="muted">${g.ids.length} work${g.ids.length === 1 ? '' : 's'}</span></li>`).join('')}</ul>
+    ${groups.length ? '' : '<p class="center muted">No collections yet. Create one, then open a work and choose it in "Collections…".</p>'}`;
+}
+
+function showGroup(id) {
+  const g = groupById(id);
+  if (!g) return location.hash = 'groups';
+  const works = g.ids.map(x => index.find(m => m.id === x)).filter(Boolean), first = works[0];
+  document.title = g.name;
+  main.innerHTML = `<p><a href="#groups">← Collections</a></p>
+    <h2 class="heading">${esc(g.name)}</h2>
+    <ul class="actions tools">
+      ${first ? `<li><a class="btn" href="#w/${first.id}/${first.last ?? 0}">Read from the start</a></li>` : ''}
+      <li><button data-do="renameGroup" data-arg="${id}">Rename</button></li>
+      <li><button data-do="deleteGroup" data-arg="${id}">Delete Collection</button></li>
+    </ul>
+    <div id="out"><ol class="works">${works.map((m, i) => blurb(m, `<div class="gctl"><span class="muted">Order</span>
+      <button data-do="moveInGroup" data-arg="${id},${m.id},-1" ${i ? '' : 'disabled'}>↑</button>
+      <button data-do="moveInGroup" data-arg="${id},${m.id},1" ${i < works.length - 1 ? '' : 'disabled'}>↓</button>
+      <button data-do="leaveGroup" data-arg="${id},${m.id}">Remove</button></div>`)).join('')}</ol></div>
+    ${works.length ? '' : '<p class="center muted">This collection is empty. Open a work and choose this collection in "Collections…".</p>'}`;
+}
+
 function upNext(m) {
   const nx = nextOf(m), opt = (v, l) => `<option value="${v}" ${(m.next || '') === v ? 'selected' : ''}>${esc(l)}</option>`;
   return `<div class="upnext">
     ${nx ? `<a class="btn" href="#w/${nx.id}/${nx.last ?? 0}">Next in series: ${esc(nx.title)} →</a><br>` : ''}
+    ${groups.map(g => [g, index.find(x => x.id === g.ids[g.ids.indexOf(m.id) + 1])]).filter(([g, n]) => g.ids.includes(m.id) && n)
+      .map(([g, n]) => `<a class="btn" href="#w/${n.id}/${n.last ?? 0}">Next in ${esc(g.name)}: ${esc(n.title)} →</a><br>`).join('')}
     <select class="nextsel" data-id="${m.id}">${opt('', 'Next work: automatic (AO3 series)')}${opt('none', 'Next work: none')}
       ${index.filter(x => x !== m).map(x => opt(x.id, 'Next work: ' + x.title)).join('')}</select></div>`;
 }
