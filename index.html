@@ -12,7 +12,7 @@
 <title>My Library</title>
 <style>
   /* Fonts, sizes and colours follow AO3's own stylesheet */
-  :root { --red:#900; --ink:#2a2a2a; --muted:#777; --line:#ddd; --fs:16px;
+  :root { --red:#900; --ink:#2a2a2a; --muted:#777; --line:#ddd; --fs:16px; --ls:13px;
           --sans:"Lucida Grande","Lucida Sans Unicode","GNU Unifont",Verdana,Helvetica,sans-serif; --serif:Georgia,serif; }
   * { box-sizing: border-box; }
   body { margin:0; background:#fff; color:var(--ink); font: 15px/1.5 var(--sans); }
@@ -25,34 +25,40 @@
   .center { text-align:center; padding:40px 10px; }
   .center button { display:block; margin:12px auto; min-width:220px; }
 
-  header { display:none; position:sticky; top:0; z-index:5; background:var(--red); color:#fff; padding:8px 12px; flex-wrap:wrap; gap:6px; align-items:center; }
+  header { display:none; position:sticky; top:0; z-index:5; background:var(--red); color:#fff; padding:8px 12px 0; flex-wrap:wrap; align-items:center; }
   body.open header { display:flex; }
   header .brand { color:#fff; font:bold 1.05rem var(--serif); text-decoration:none; flex:1; }
-  header button { padding:4px 9px; font-size:.9rem; background:transparent; color:#fff; border:1px solid #ffffff70; }
-  header button.on { background:#fff; color:var(--red); }
+  header .icon { background:none; border:0; color:#fff; font-size:1.25rem; padding:0 8px; }
+  header { transition: transform .25s; }
+  body.hide-bar header { transform: translateY(-100%); }   /* bar slides away while scrolling down a chapter */
+  body.full header { display:none !important; }            /* full screen: no bar at all */
+  .tabs { flex-basis:100%; display:flex; margin-top:6px; }
+  .tabs button { flex:1; background:none; border:0; border-radius:0; color:#ffffffb0; padding:8px 0; border-bottom:3px solid transparent; }
+  .tabs button.on { color:#fff; font-weight:bold; border-bottom-color:#fff; }
   main { max-width:900px; margin:0 auto; padding:12px; }
 
+  #out, .toolbar { font-size:var(--ls); }
   .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
   .toolbar input { flex:1; min-width:180px; }
-  h2.heading { font:normal 1.3rem var(--serif); margin:6px 0 12px; }
+  h2.heading { font:normal 1.3em var(--serif); margin:6px 0 12px; }
   .tag { color:var(--ink); border-bottom:1px dotted; }
 
   /* AO3 work blurb (list) */
   ol.works { list-style:none; padding:0; margin:0; }
   .blurb { border:1px solid var(--line); box-shadow:1px 1px 3px #0001; padding:12px 14px; margin-bottom:14px; overflow:hidden; }
   .blurb .hd { display:flex; gap:10px; align-items:flex-start; }
-  .req { display:grid; grid-template-columns:repeat(2, 30px); gap:3px; flex:none; }
-  .sq { width:30px; height:30px; display:grid; place-items:center; color:#fff; font:bold 20px var(--serif); border:1px solid #0002; }
+  .req { display:grid; grid-template-columns:repeat(2, 2.2em); gap:3px; flex:none; }
+  .sq { aspect-ratio:1; display:grid; place-items:center; color:#fff; font:bold 1.45em/1 var(--serif); border:1px solid #0002; }
   .ttl { flex:1; min-width:0; }
-  .ttl h4 { margin:0; font:normal 1.15rem var(--serif); }
-  .ttl h5 { margin:4px 0 0; font:normal .95rem var(--serif); }
-  .date { flex:none; margin:0; font:.78rem monospace; color:var(--muted); }
+  .ttl h4 { margin:0; font:normal 1.2em var(--serif); }
+  .ttl h5 { margin:4px 0 0; font:normal 1em var(--serif); }
+  .date { flex:none; margin:0; font:.8em monospace; color:var(--muted); }
   ul.tags { list-style:none; padding:0; margin:10px 0 0; line-height:1.75; }
   ul.tags li { display:inline; }
   ul.tags li:not(:last-child)::after { content:", "; }
   ul.tags .warnings .tag { font-weight:bold; border:0; }
   blockquote.summary { margin:10px 0 0; }
-  dl.stats { text-align:right; margin:10px 0 0; font-size:.88rem; }
+  dl.stats { text-align:right; margin:10px 0 0; font-size:.9em; }
   dl.stats dt, dl.stats dd { display:inline; margin:0; }
   dl.stats dd { margin-inline-end:12px; }
 
@@ -61,11 +67,13 @@
            background: repeating-linear-gradient(to bottom, transparent 0 238px, #7a4a22 238px 252px); border-radius:6px; }
   .book { display:flex; flex-direction:column; justify-content:flex-end; align-items:center; text-decoration:none; color:var(--ink); padding-bottom:16px; min-width:0; }
   .book img { width:104px; height:156px; object-fit:cover; border-radius:2px 5px 5px 2px; box-shadow:3px 3px 6px #0006, inset 4px 0 6px #0003; background:#eee; }
-  .book span { font-size:.75rem; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
+  .book span { font-size:.85em; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
 
   /* AO3 chapter page */
   ul.actions { list-style:none; padding:0; margin:6px 0 10px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
-  ul.actions select { max-width:60vw; }
+  ul.actions select { max-width:46vw; }
+  ul.tools { gap:4px; margin-top:-2px; }
+  ul.tools button { font-size:.78rem; padding:.15em .6em; }
   .wrapper { border:1px solid var(--line); box-shadow:1px 1px 5px #aaa; padding:.6em 1em; margin:.6em 0 1.5em; }
   dl.meta { margin:0; }
   dl.meta dt { margin-top:.6em; }
@@ -97,20 +105,17 @@
   /* Reading position: thin light-gray marker on the right edge, never catches taps */
   #pos { position:fixed; right:2px; top:0; width:3px; border-radius:2px; background:#d0d0d0; pointer-events:none; z-index:4; display:none; }
 
-  @media print {
-    #pos, header, ul.actions, #toast, .cover-big { display:none !important; }
-    .chapter + .chapter { break-before: page; }
-  }
 </style>
 </head>
 <body>
 <header>
   <a class="brand" href="#">My Library</a>
-  <button data-do="go" data-arg="" data-tab="">Works</button>
-  <button data-do="go" data-arg="shelf" data-tab="shelf">Bookshelf</button>
-  <button data-do="add">+ Add</button>
-  <button data-do="go" data-arg="settings" data-tab="settings" aria-label="Settings">⚙</button>
-  <button data-do="lock" aria-label="Lock">🔒</button>
+  <button class="icon" data-do="go" data-arg="settings" aria-label="Settings">⚙</button>
+  <button class="icon" data-do="lock" aria-label="Lock">🔒</button>
+  <nav class="tabs">
+    <button data-do="go" data-arg="" data-tab="">Works</button>
+    <button data-do="go" data-arg="shelf" data-tab="shelf">Bookshelf</button>
+  </nav>
 </header>
 <main id="main"></main>
 <input type="file" id="pick" hidden>
@@ -259,9 +264,10 @@ document.addEventListener('visibilitychange', () => {
 const actions = {
   go: v => location.hash = v,
   lock: start,
-  print: () => print(),
   top: () => scrollTo(0, 0),
-  font(d) { pref('fs', Math.min(28, Math.max(12, (+pref('fs') || 17) + +d))); applyFont(); },
+  full: () => document.fullscreenElement ? document.exitFullscreen()
+    : document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => toast('Full screen is not available here')),
+  size(arg) { const [k, d] = arg.split(','); pref(k, Math.min(28, Math.max(10, size(k) + +d))); applySizes(); if (location.hash === '#settings') route(); },
   async create() {
     const pw = await askPassword('Choose a password (at least 4 characters). If you forget it, the library cannot be recovered.');
     if (!pw) return;
@@ -341,8 +347,14 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-do]');
   if (b) actions[b.dataset.do](b.dataset.arg);
 });
+const reading = () => location.hash.startsWith('#w/');
+main.addEventListener('dblclick', e => {   // double tap on the text toggles full screen
+  if (reading() && !e.target.closest('a, button, select')) { getSelection().removeAllRanges(); actions.full(); }
+});
+document.addEventListener('fullscreenchange', () => document.body.classList.toggle('full', !!document.fullscreenElement));
 main.addEventListener('change', e => e.target.matches('.chsel') && (location.hash = e.target.value));
-const applyFont = () => document.documentElement.style.setProperty('--fs', (+pref('fs') || 17) + 'px');
+const size = k => +pref(k) || { fs: 16, ls: 13 }[k];
+const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.style.setProperty('--' + k, size(k) + 'px'));
 
 /* ---------- Screens ---------- */
 function route() {
@@ -351,6 +363,9 @@ function route() {
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === view));
   scrollTo(0, 0);
   updatePos();
+  document.body.classList.remove('hide-bar');
+  $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
+  if (view !== 'w' && document.fullscreenElement) document.exitFullscreen();
   if (view === 'w') return showWork(id, ch).then(updatePos);
   if (view === 'shelf') return showShelf();
   if (view === 'settings') return showSettings();
@@ -364,7 +379,13 @@ function updatePos() {
   const len = Math.max(24, innerHeight * innerHeight / total);
   Object.assign(pos.style, { height: len + 'px', top: scrollY / max * (innerHeight - len) + 'px' });
 }
-addEventListener('scroll', updatePos, { passive: true });
+let lastY = 0;
+addEventListener('scroll', () => {
+  updatePos();
+  if (Math.abs(scrollY - lastY) < 8) return;
+  document.body.classList.toggle('hide-bar', reading() && scrollY > 60 && scrollY > lastY);
+  lastY = scrollY;
+}, { passive: true });
 addEventListener('resize', updatePos);
 
 function showWelcome() {
@@ -419,7 +440,7 @@ function filtered() {
     .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1));
 }
 function toolbar(draw) {
-  main.innerHTML = `<div class="toolbar"><input id="q" type="search" placeholder="Search title, author, fandom or tag" value="${esc(query)}">
+  main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add Work</button><input id="q" type="search" placeholder="Search title, author, fandom or tag" value="${esc(query)}">
     <select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === (pref('sort') || 'updated') ? 'selected' : ''}>Sort by ${l}</option>`).join('')}</select></div>
     <div id="out"></div>`;
   $('#q').oninput = () => { query = $('#q').value; draw(); };
@@ -457,13 +478,11 @@ async function showWork(id, ch) {
   const m = index.find(x => x.id === id);
   if (!m) return location.hash = '';
   if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
-  const w = cache.w, n = w.chapters.length, all = ch === 'all', i = all ? 0 : Math.min(+ch || 0, n - 1);
-  if (!all) { m.last = i; m.readAt = Date.now(); saveIndex(); }
-  const shown = all ? w.chapters.map((c, j) => [c, j]) : [[w.chapters[i], i]];
-  document.title = m.title + (all || n === 1 ? '' : ' - ' + chName(w.chapters[i], i));
+  const w = cache.w, n = w.chapters.length, i = Math.min(+ch || 0, n - 1), c = w.chapters[i];
+  m.last = i; m.readAt = Date.now(); saveIndex();
+  document.title = m.title + (n === 1 ? '' : ' - ' + chName(c, i));
   const btn = (j, label) => `<li><a class="btn" href="#w/${id}/${j}">${label}</a></li>`;
-  const prev = !all && i > 0 ? btn(i - 1, '← Previous Chapter') : '';
-  const next = !all && i < n - 1 ? btn(i + 1, 'Next Chapter →') : '';
+  const nav = (i > 0 ? btn(i - 1, '← Previous') : '') + (i < n - 1 ? btn(i + 1, 'Next →') : '');
   const dd = (l, v) => /^stats/i.test(l)
     ? v.join(' ').replace(/(\S+:)\s*(\S+)/g, (_, a, b) => `<span class="st">${esc(a)} ${esc(b)}</span>`)
     : v.map(t => `<span class="tag">${esc(t)}</span>`).join(', ');
@@ -471,11 +490,13 @@ async function showWork(id, ch) {
 
   main.innerHTML = `
     <ul class="actions">
-      ${n > 1 ? (all ? btn(m.last ?? 0, 'Chapter by Chapter') : btn('all', 'Entire Work')) : ''}
-      ${prev}${next}
-      ${n > 1 ? `<li><select class="chsel">${w.chapters.map((c, j) => `<option value="w/${id}/${j}" ${!all && j === i ? 'selected' : ''}>${esc(j + 1 + '. ' + chName(c, j))}</option>`).join('')}</select></li>` : ''}
-      <li><button data-do="font" data-arg="-1">A−</button></li><li><button data-do="font" data-arg="1">A+</button></li>
-      <li><button data-do="print">PDF</button></li>
+      ${i > 0 ? btn(i - 1, '← Previous') : ''}
+      ${n > 1 ? `<li><select class="chsel">${w.chapters.map((x, j) => `<option value="w/${id}/${j}" ${j === i ? 'selected' : ''}>${esc(j + 1 + '. ' + chName(x, j))}</option>`).join('')}</select></li>` : ''}
+      ${i < n - 1 ? btn(i + 1, 'Next →') : ''}
+    </ul>
+    <ul class="actions tools">
+      <li><button data-do="full">⛶ Full Screen</button></li>
+      <li><button data-do="size" data-arg="fs,-1">A−</button></li><li><button data-do="size" data-arg="fs,1">A+</button></li>
       <li><button data-do="cover" data-arg="${id}">${m.cover ? 'Change Cover' : 'Add Cover'}</button></li>
       ${m.cover ? `<li><button data-do="uncover" data-arg="${id}">Remove Cover</button></li>` : ''}
       <li><button data-do="remove" data-arg="${id}">Delete</button></li>
@@ -484,19 +505,19 @@ async function showWork(id, ch) {
       `<dt class="${warn(l)}">${esc(l)}:</dt><dd class="${warn(l)}">${dd(l, v)}</dd>`).join('')}</dl></div>
     <div class="work">
       <div class="preface">
-        ${m.cover && (all || i === 0) ? `<img class="cover-big" src="${await getCover(id)}" alt="">` : ''}
+        ${m.cover && i === 0 ? `<img class="cover-big" src="${await getCover(id)}" alt="">` : ''}
         <h2 class="title">${esc(m.title)}</h2><h3 class="byline">${esc(m.author)}</h3><hr class="line">
-        ${all || i === 0 ? module((m.summary ? `<p>Summary</p><blockquote>${m.summary}</blockquote>` : '') + (w.notes ? `<p>Notes</p><blockquote>${w.notes}</blockquote>` : '')) : ''}
+        ${i === 0 ? module((m.summary ? `<p>Summary</p><blockquote>${m.summary}</blockquote>` : '') + (w.notes ? `<p>Notes</p><blockquote>${w.notes}</blockquote>` : '')) : ''}
       </div>
-      ${shown.map(([c, j]) => `<section class="chapter">
-        ${n > 1 ? `<h3 class="title"><span>${esc(chName(c, j))}</span></h3>` : ''}
+      <section class="chapter">
+        ${n > 1 ? `<h3 class="title"><span>${esc(chName(c, i))}</span></h3>` : ''}
         ${module(c.notes)}
         <div class="userstuff">${c.body}</div>
         ${module(c.end)}
-      </section>`).join('')}
-      ${all || i === n - 1 ? module(w.after) : ''}
+      </section>
+      ${i === n - 1 ? module(w.after) : ''}
     </div>
-    <ul class="actions">${prev}${next}<li><button data-do="top">↑ Top</button></li></ul>`;
+    <ul class="actions">${nav}<li><button data-do="top">↑ Top</button></li></ul>`;
 }
 
 function showSettings() {
@@ -506,12 +527,13 @@ function showSettings() {
        (cable, Drive, WhatsApp), then on the new phone open the app and choose "Restore from a backup file".</p>
     <p><button data-do="backup">Create a backup file</button></p>
     <p><button data-do="merge">Add works from a backup file to this library</button></p>
-    <h2 class="heading">Reading text size</h2>
-    <p><button data-do="font" data-arg="-1">A−</button> <button data-do="font" data-arg="1">A+</button></p>
+    <h2 class="heading">Text size</h2>
+    ${[['ls', 'Works list &amp; bookshelf'], ['fs', 'Reading']].map(([k, l]) =>
+      `<p>${l}: <button data-do="size" data-arg="${k},-1">A−</button> <b>${size(k)}</b> <button data-do="size" data-arg="${k},1">A+</button></p>`).join('')}
     <p class="muted">${index.length} works in your library · auto-locks after 5 minutes in the background</p>`;
 }
 
-applyFont();
+applySizes();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 start();
 </script>
