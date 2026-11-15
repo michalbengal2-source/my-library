@@ -76,11 +76,8 @@
   .upnext select { max-width:70vw; margin-top:8px; font-size:.85rem; }
 
   /* Bookshelf */
-  .shelf { display:grid; grid-template-columns:repeat(auto-fill, 104px); justify-content:space-evenly; grid-auto-rows:252px; column-gap:14px; padding:12px 14px 0;
-           background: repeating-linear-gradient(to bottom, transparent 0 238px, #7a4a22 238px 252px); border-radius:6px; }
-  .book { display:flex; flex-direction:column; justify-content:flex-end; align-items:center; text-decoration:none; color:var(--ink); padding-bottom:16px; min-width:0; }
-  .book img { width:104px; height:156px; object-fit:cover; border-radius:2px 5px 5px 2px; box-shadow:3px 3px 6px #0006, inset 4px 0 6px #0003; background:#eee; }
-  .book span { font-size:.85em; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
+  .shelf { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+  .book img { display:block; width:100%; aspect-ratio:2/3; object-fit:cover; border-radius:3px; box-shadow:0 1px 4px #0004; background:#eee; }
 
   /* AO3 chapter page */
   ul.actions { list-style:none; padding:0; margin:6px 0 10px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
@@ -589,7 +586,7 @@ function showShelf() {
   toolbar(async () => {
     const list = filtered().filter(m => m.cover);
     $('#out').innerHTML = list.length
-      ? `<div class="shelf">${list.map(m => `<a class="book" href="#w/${m.id}/${m.last ?? 0}" title="${esc(m.title)}"><img data-id="${m.id}" alt=""><span>${esc(m.title)}</span></a>`).join('')}</div>`
+      ? `<div class="shelf">${list.map(m => `<a class="book" href="#w/${m.id}/${m.last ?? 0}"><img data-id="${m.id}" alt="${esc(m.title)}"></a>`).join('')}</div>`
       : '<p class="center muted">No covers yet. Open a work and tap "Cover" to add one.</p>';
     for (const img of main.querySelectorAll('img[data-id]')) img.src = await getCover(img.dataset.id);
   });
