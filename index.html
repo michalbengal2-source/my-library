@@ -266,9 +266,17 @@ async function start() {
 function enter() {
   document.body.classList.add('open');
   navigator.storage?.persist?.();   // asks the phone not to clear this data when space runs low
-  route();
+  // Reopen where you left off: same screen, same spot in the chapter
+  const p = place();
+  restoreY = p.y;
+  if ((p.h || '') !== location.hash) location.hash = p.h || ''; else route();
   importShared();
 }
+
+/* Last screen and scroll position. Only a random work id and a number are kept, nothing readable. */
+let restoreY = null;
+const place = () => { try { return JSON.parse(pref('place')) || {}; } catch { return {}; } };
+const savePlace = () => key && pref('place', JSON.stringify({ h: location.hash, y: scrollY / document.documentElement.scrollHeight }));
 
 /* Adds new works, or updates ones already in the library (same title and author, or the work given by id).
    Reading place, cover and series link are kept; new chapters are counted. */
@@ -301,7 +309,7 @@ async function importShared() {
   importTexts(texts);
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) hiddenAt = Date.now();
+  if (document.hidden) { hiddenAt = Date.now(); savePlace(); }
   else if (key && Date.now() - hiddenAt > 5 * 60e3) start();   // auto-lock after 5 minutes in the background
 });
 
@@ -405,7 +413,9 @@ function route() {
   document.body.classList.remove('hide-bar');
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
   if (view !== 'w' && document.fullscreenElement) document.exitFullscreen();
-  if (view === 'w') return showWork(id, ch).then(updatePos);
+  const y = restoreY; restoreY = null;
+  if (view === 'w') return showWork(id, ch).then(() => { if (y) scrollTo(0, y * document.documentElement.scrollHeight); updatePos(); savePlace(); });
+  savePlace();
   if (view === 'shelf') return showShelf();
   if (view === 'settings') return showSettings();
   showList();
@@ -424,6 +434,7 @@ addEventListener('scroll', () => {
   if (Math.abs(scrollY - lastY) < 8) return;
   document.body.classList.toggle('hide-bar', reading() && scrollY > 60 && scrollY > lastY);
   lastY = scrollY;
+  savePlace();
 }, { passive: true });
 addEventListener('resize', updatePos);
 
