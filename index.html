@@ -37,9 +37,10 @@
   .tabs button.on { color:#fff; font-weight:bold; border-bottom-color:#fff; }
   main { max-width:900px; margin:0 auto; padding:12px; }
 
-  #out, .toolbar { font-size:var(--ls); }
-  .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
-  .toolbar input { flex:1; min-width:180px; }
+  #out, .toolbar, .picks { font-size:var(--ls); }
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .picks { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .picks select { width:100%; min-width:0; }
   h2.heading { font:normal 1.3em var(--serif); margin:6px 0 12px; }
   .tag { color:var(--ink); border-bottom:1px dotted; }
 
@@ -146,7 +147,7 @@
 "use strict";
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
-let key = null, index = [], cache = {}, covers = {}, query = '', hiddenAt = 0;
+let key = null, index = [], cache = {}, covers = {}, hiddenAt = 0;
 
 /* ---------- Local storage (IndexedDB) ---------- */
 const dbp = new Promise((ok, no) => {
@@ -347,11 +348,14 @@ const actions = {
     index.find(m => m.id === id).cover = false; await saveIndex(); route();
   },
   async backup() {
+    toast('Preparing backup…');
     const data = Object.fromEntries(Object.entries(await entries()).map(([k, v]) => [k, b64(v)]));
     const file = new File([JSON.stringify({ app: 'my-library', v: 1, data })],
       `library-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
-    if (navigator.canShare?.({ files: [file] })) return navigator.share({ files: [file] }).catch(() => {});
-    Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name }).click();
+    // Saved straight to Downloads: the phone's share sheet refused this file type and failed silently
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name });
+    document.body.append(a); a.click(); a.remove();
+    toast(`Backup saved to Downloads: ${file.name}`);
   },
   async merge() {
     const [f] = await pickFiles('.json,application/json');
@@ -490,40 +494,64 @@ const filters = { inc: new Set(), exc: new Set() }, openG = new Set();   // kept
 let panelOpen = false;
 const hasTag = (m, k) => { const i = k.indexOf('|'); return GROUPS[k.slice(0, i)][1](m).includes(k.slice(i + 1)); };
 
+const countsOf = get => {   // [tag, number of works], most common first
+  const c = {};
+  index.forEach(m => new Set(get(m)).forEach(t => c[t] = (c[t] || 0) + 1));
+  return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+};
+
+/* Quick pick lists above the results: title, fandom, author, tag (they share state with the Filters panel) */
+const PICKS = [['fandoms', [3]], ['authors', [7]], ['tags', [5, 4, 6]]];
+let titleId = '';
+function picks() {
+  const opt = (v, label, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(label)}</option>`;
+  return `<select data-pick="title">${opt('', 'All titles')}${[...index].sort((a, b) => a.title.localeCompare(b.title))
+      .map(m => opt(m.id, m.title, m.id === titleId)).join('')}</select>` +
+    PICKS.map(([l, gs], pi) => `<select data-pick="${pi}">${opt('', 'All ' + l)}${gs.map(gi => `<optgroup label="${GROUPS[gi][0]}">${
+      countsOf(GROUPS[gi][1]).map(([t, n]) => opt(gi + '|' + t, `${t} (${n})`, filters.inc.has(gi + '|' + t))).join('')}</optgroup>`).join('')}</select>`).join('');
+}
+
 function filterPanel() {
   return '<button id="fclear">Clear Filters</button>' + [['inc', 'Include'], ['exc', 'Exclude']].map(([mode, title]) => `<h3>${title}</h3>` +
     GROUPS.map(([g, get], gi) => {
-      const c = {};
-      index.forEach(m => new Set(get(m)).forEach(t => c[t] = (c[t] || 0) + 1));
-      const list = Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      const list = countsOf(get);
       return list.length ? `<details data-g="${mode + gi}" ${openG.has(mode + gi) ? 'open' : ''}><summary>${g}</summary>${list.map(([t, n]) =>
         `<label><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')}</details>` : '';
     }).join('')).join('');
 }
 
 function filtered() {
-  const [, val, asc] = SORTS[pref('sort')] || SORTS.updated, q = query.toLowerCase();
-  return index.filter(m => JSON.stringify(m).toLowerCase().includes(q)
+  const [, val, asc] = SORTS[pref('sort')] || SORTS.updated;
+  return index.filter(m => (!titleId || m.id === titleId)
       && [...filters.inc].every(k => hasTag(m, k)) && ![...filters.exc].some(k => hasTag(m, k)))
     .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1));
 }
 function toolbar(draw) {
-  main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add Work</button><input id="q" type="search" placeholder="Search title, author, fandom or tag" value="${esc(query)}">
-    <select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === (pref('sort') || 'updated') ? 'selected' : ''}>Sort by ${l}</option>`).join('')}</select></div>
+  main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add Work</button>
+    <select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === (pref('sort') || 'updated') ? 'selected' : ''}>Sort by ${l}</option>`).join('')}</select>
     <button id="fbtn"></button></div>
+    <div id="picks" class="picks"></div>
     <div id="filters" class="filters" ${panelOpen ? '' : 'hidden'}></div><div id="out"></div>`;
   const panel = $('#filters');
   const redraw = (rebuild) => {
-    const n = filters.inc.size + filters.exc.size;
+    const n = filters.inc.size + filters.exc.size + !!titleId;
     $('#fbtn').textContent = 'Filters' + (n ? ` (${n})` : '');
-    if (rebuild) panel.innerHTML = filterPanel();
+    if (rebuild) { panel.innerHTML = filterPanel(); $('#picks').innerHTML = picks(); }
     draw();
   };
-  $('#q').oninput = () => { query = $('#q').value; draw(); };
+  $('#picks').onchange = e => {
+    const p = e.target.dataset.pick, v = e.target.value;
+    if (p === 'title') titleId = v;
+    else {
+      PICKS[p][1].forEach(gi => [...filters.inc].forEach(k => k.startsWith(gi + '|') && filters.inc.delete(k)));
+      if (v) { filters.inc.add(v); filters.exc.delete(v); }
+    }
+    redraw(true);
+  };
   $('#sort').onchange = () => { pref('sort', $('#sort').value); draw(); };
   $('#fbtn').onclick = () => { panel.hidden = !(panelOpen = !panelOpen); };
   panel.addEventListener('toggle', e => openG[e.target.open ? 'add' : 'delete'](e.target.dataset.g), true);
-  panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); redraw(true); } };
+  panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); titleId = ''; redraw(true); } };
   panel.onchange = e => {
     const { f } = e.target.dataset, k = e.target.value, other = f === 'inc' ? 'exc' : 'inc';
     if (!e.target.checked) return filters[f].delete(k), redraw();
