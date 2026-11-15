@@ -62,6 +62,18 @@
   dl.stats dt, dl.stats dd { display:inline; margin:0; }
   dl.stats dd { margin-inline-end:12px; }
 
+  /* AO3-style Sort and Filter panel */
+  .filters { background:#ddd; border-radius:4px; padding:8px 12px; margin-bottom:12px; font-size:var(--ls); }
+  .filters h3 { font:bold 1.15em var(--serif); margin:.6em 0 .2em; }
+  .filters summary { padding:5px 0; border-bottom:1px dotted #999; cursor:pointer; }
+  .filters label { display:block; padding:4px 0 4px 4px; }
+  .filters input { margin:0 6px 0 0; vertical-align:-2px; }
+  #out .tag { cursor:pointer; }
+  .blurb .series { margin:8px 0 0; }
+  .blurb .new { margin:8px 0 0; color:var(--red); font-weight:bold; }
+  .upnext { text-align:center; margin:2em 0 0; }
+  .upnext select { max-width:70vw; margin-top:8px; font-size:.85rem; }
+
   /* Bookshelf */
   .shelf { display:grid; grid-template-columns:repeat(auto-fill, 104px); justify-content:space-evenly; grid-auto-rows:252px; column-gap:14px; padding:12px 14px 0;
            background: repeating-linear-gradient(to bottom, transparent 0 238px, #7a4a22 238px 252px); border-radius:6px; }
@@ -254,6 +266,38 @@ function enter() {
   document.body.classList.add('open');
   navigator.storage?.persist?.();   // asks the phone not to clear this data when space runs low
   route();
+  importShared();
+}
+
+/* Adds new works, or updates ones already in the library (same title and author, or the work given by id).
+   Reading place, cover and series link are kept; new chapters are counted. */
+async function importTexts(texts, id) {
+  const notes = [];
+  for (const html of texts) {
+    const { meta, work } = parseWork(html);
+    const old = id ? index.find(m => m.id === id) : index.find(m => m.title === meta.title && m.author === meta.author);
+    const before = old ? old.count ?? parseInt(old.chapters) : 0, added = old ? work.chapters.length - before : 0;
+    Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, readAt: old?.readAt, cover: old?.cover,
+      next: old?.next, added: old?.added || Date.now(), count: work.chapters.length,
+      newFrom: added > 0 ? before : old?.newFrom });   // first new chapter, for the "new chapters" mark
+    await put('w:' + meta.id, await seal(key, work));
+    index = [meta, ...index.filter(m => m !== old)];
+    if (cache.id === meta.id) cache = {};
+    notes.push(!old ? `Added: ${meta.title}` : added > 0 ? `${meta.title}: ${added} new chapter${added > 1 ? 's' : ''}` : `${meta.title}: no new chapters`);
+  }
+  await saveIndex();
+  toast(notes.length > 2 ? `${notes.length} works added or updated` : notes.join(' · '));
+  id ? route() : location.hash === '' ? route() : location.hash = '';
+}
+
+/* Files shared into the app from another app (e.g. Downloads → Share → My Library) wait in a
+   temporary cache until the library is unlocked, then are imported and deleted from there. */
+async function importShared() {
+  const c = await caches.open('shared'), reqs = await c.keys();
+  if (!reqs.length) return;
+  const texts = await Promise.all(reqs.map(r => c.match(r).then(x => x.text())));
+  await Promise.all(reqs.map(r => c.delete(r)));
+  importTexts(texts);
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) hiddenAt = Date.now();
@@ -284,21 +328,9 @@ const actions = {
     for (const k in data) await put(k, data[k]);
     start();
   },
-  async add() {
-    const files = await pickFiles('.html,.htm,text/html', true);
-    for (const f of files) {
-      const { meta, work } = parseWork(await f.text());
-      const old = index.find(m => m.title === meta.title && m.author === meta.author);
-      Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, readAt: old?.readAt,
-                            cover: old?.cover, added: old?.added || Date.now() });
-      await put('w:' + meta.id, await seal(key, work));
-      index = [meta, ...index.filter(m => m !== old)];
-      if (cache.id === meta.id) cache = {};
-    }
-    if (!files.length) return;
-    await saveIndex();
-    toast(files.length === 1 ? 'Work added to your library' : `${files.length} works added`);
-    location.hash === '' ? route() : location.hash = '';
+  async add(id) {
+    const files = await pickFiles('.html,.htm,text/html', !id);
+    if (files.length) importTexts(await Promise.all(files.map(f => f.text())), id);
   },
   async cover(id) {
     const [f] = await pickFiles('image/*');
@@ -352,7 +384,10 @@ main.addEventListener('dblclick', e => {   // double tap on the text toggles ful
   if (reading() && !e.target.closest('a, button, select')) { getSelection().removeAllRanges(); actions.full(); }
 });
 document.addEventListener('fullscreenchange', () => document.body.classList.toggle('full', !!document.fullscreenElement));
-main.addEventListener('change', e => e.target.matches('.chsel') && (location.hash = e.target.value));
+main.addEventListener('change', e => {
+  if (e.target.matches('.chsel')) location.hash = e.target.value;
+  if (e.target.matches('.nextsel')) { index.find(m => m.id === e.target.dataset.id).next = e.target.value; saveIndex(); route(); }
+});
 const size = k => +pref(k) || { fs: 16, ls: 13 }[k];
 const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.style.setProperty('--' + k, size(k) + 'px'));
 
@@ -413,16 +448,29 @@ function required(m) {
       : /chose not/i.test(warn) ? sq('!?', '#e9711c', warn) : sq('!', '#9c0000', warn)}
     ${sq(done ? '✓' : '⊘', done ? '#77a170' : '#9c0000', done ? 'Complete Work' : 'Work in Progress')}</div>`;
 }
+/* Series: AO3's "Part 2 of Name" is linked automatically; a manual choice (m.next) overrides it */
+const seriesOf = m => tagsOf(m, /^series/i).map(s => s.match(/Part (\d+) of (.+)/i)).filter(Boolean).map(([, p, name]) => ({ part: +p, name }));
+function nextOf(m) {
+  if (m.next) return index.find(x => x.id === m.next);   // 'none' finds nothing
+  for (const s of seriesOf(m)) {
+    const n = index.find(x => seriesOf(x).some(t => t.name === s.name && t.part === s.part + 1));
+    if (n) return n;
+  }
+}
+
 function blurb(m) {
-  const group = (re, cls) => tagsOf(m, re).map(t => `<li class="${cls}"><span class="tag">${esc(t)}</span></li>`).join('');
+  const tag = (gi, t) => `<span class="tag" data-k="${esc(gi + '|' + t)}">${esc(t)}</span>`;
+  const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi, t)}</li>`).join('');
   const lang = tagsOf(m, /^language/i).join(', ');
   return `<li class="blurb">
     <div class="hd">${required(m)}
-      <div class="ttl"><h4><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a> by ${esc(m.author)}</h4>
-        <h5>${esc(tagsOf(m, /^fandom/i).join(', '))}</h5></div>
+      <div class="ttl"><h4><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a> by ${authorsOf(m).map(a => tag(7, a)).join(', ')}</h4>
+        <h5>${GROUPS[3][1](m).map(t => tag(3, t)).join(', ')}</h5></div>
       <p class="date">${fmtDate(m.date)}</p></div>
-    <ul class="tags">${group(/^archive warning/i, 'warnings')}${group(/^relationship/i, '')}${group(/^character/i, '')}${group(/^additional/i, '')}</ul>
+    <ul class="tags">${group(1, 'warnings')}${group(5, '')}${group(4, '')}${group(6, '')}</ul>
     ${m.summary ? `<blockquote class="summary">${m.summary}</blockquote>` : ''}
+    ${seriesOf(m).map(s => `<p class="series">Part <b>${s.part}</b> of <b>${esc(s.name)}</b></p>`).join('')}
+    ${m.newFrom != null && (m.last ?? -1) < m.newFrom ? `<p class="new">✦ ${m.count - m.newFrom} new chapter${m.count - m.newFrom > 1 ? 's' : ''}</p>` : ''}
     <dl class="stats">${lang ? `<dt>Language:</dt> <dd>${esc(lang)}</dd>` : ''}
       <dt>Words:</dt> <dd>${esc(m.words)}</dd> <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
       <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>
@@ -434,18 +482,57 @@ const SORTS = {
   title: ['Title', m => m.title.toLowerCase(), 1], author: ['Author', m => m.author.toLowerCase(), 1],
   words: ['Word Count', m => +String(m.words).replace(/\D/g, '') || 0],
 };
+const authorsOf = m => m.author.split(/,\s+|\s+and\s+/).filter(Boolean);
+const GROUPS = [['Ratings', /^rating/i], ['Warnings', /^archive warning/i], ['Categories', /^categor/i], ['Fandoms', /^fandom/i],
+  ['Characters', /^character/i], ['Relationships', /^relationship/i], ['Additional Tags', /^additional/i]]
+  .map(([g, re]) => [g, m => tagsOf(m, re)]).concat([['Authors', authorsOf]]);
+const filters = { inc: new Set(), exc: new Set() }, openG = new Set();   // kept in memory only, never saved unencrypted
+let panelOpen = false;
+const hasTag = (m, k) => { const i = k.indexOf('|'); return GROUPS[k.slice(0, i)][1](m).includes(k.slice(i + 1)); };
+
+function filterPanel() {
+  return '<button id="fclear">Clear Filters</button>' + [['inc', 'Include'], ['exc', 'Exclude']].map(([mode, title]) => `<h3>${title}</h3>` +
+    GROUPS.map(([g, get], gi) => {
+      const c = {};
+      index.forEach(m => new Set(get(m)).forEach(t => c[t] = (c[t] || 0) + 1));
+      const list = Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      return list.length ? `<details data-g="${mode + gi}" ${openG.has(mode + gi) ? 'open' : ''}><summary>${g}</summary>${list.map(([t, n]) =>
+        `<label><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')}</details>` : '';
+    }).join('')).join('');
+}
+
 function filtered() {
   const [, val, asc] = SORTS[pref('sort')] || SORTS.updated, q = query.toLowerCase();
-  return index.filter(m => JSON.stringify(m).toLowerCase().includes(q))
+  return index.filter(m => JSON.stringify(m).toLowerCase().includes(q)
+      && [...filters.inc].every(k => hasTag(m, k)) && ![...filters.exc].some(k => hasTag(m, k)))
     .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1));
 }
 function toolbar(draw) {
   main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add Work</button><input id="q" type="search" placeholder="Search title, author, fandom or tag" value="${esc(query)}">
     <select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === (pref('sort') || 'updated') ? 'selected' : ''}>Sort by ${l}</option>`).join('')}</select></div>
-    <div id="out"></div>`;
+    <button id="fbtn"></button></div>
+    <div id="filters" class="filters" ${panelOpen ? '' : 'hidden'}></div><div id="out"></div>`;
+  const panel = $('#filters');
+  const redraw = (rebuild) => {
+    const n = filters.inc.size + filters.exc.size;
+    $('#fbtn').textContent = 'Filters' + (n ? ` (${n})` : '');
+    if (rebuild) panel.innerHTML = filterPanel();
+    draw();
+  };
   $('#q').oninput = () => { query = $('#q').value; draw(); };
   $('#sort').onchange = () => { pref('sort', $('#sort').value); draw(); };
-  draw();
+  $('#fbtn').onclick = () => { panel.hidden = !(panelOpen = !panelOpen); };
+  panel.addEventListener('toggle', e => openG[e.target.open ? 'add' : 'delete'](e.target.dataset.g), true);
+  panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); redraw(true); } };
+  panel.onchange = e => {
+    const { f } = e.target.dataset, k = e.target.value, other = f === 'inc' ? 'exc' : 'inc';
+    if (!e.target.checked) return filters[f].delete(k), redraw();
+    filters[f].add(k); filters[other].delete(k);
+    if (f === 'inc' && k.startsWith('0|')) [...filters.inc].forEach(x => x !== k && x.startsWith('0|') && filters.inc.delete(x));  // one rating at a time, like AO3
+    redraw(true);
+  };
+  $('#out').onclick = e => { const { k } = e.target.dataset; if (k) { filters.inc.add(k); filters.exc.delete(k); redraw(true); } };
+  redraw(true);
 }
 
 function showList() {
@@ -499,6 +586,7 @@ async function showWork(id, ch) {
       <li><button data-do="size" data-arg="fs,-1">A−</button></li><li><button data-do="size" data-arg="fs,1">A+</button></li>
       <li><button data-do="cover" data-arg="${id}">${m.cover ? 'Change Cover' : 'Add Cover'}</button></li>
       ${m.cover ? `<li><button data-do="uncover" data-arg="${id}">Remove Cover</button></li>` : ''}
+      <li><button data-do="add" data-arg="${id}">Update</button></li>
       <li><button data-do="remove" data-arg="${id}">Delete</button></li>
     </ul>
     <div class="wrapper"><dl class="meta">${m.tags.map(([l, v]) =>
@@ -515,9 +603,17 @@ async function showWork(id, ch) {
         <div class="userstuff">${c.body}</div>
         ${module(c.end)}
       </section>
-      ${i === n - 1 ? module(w.after) : ''}
+      ${i === n - 1 ? module(w.after) + upNext(m) : ''}
     </div>
     <ul class="actions">${nav}<li><button data-do="top">↑ Top</button></li></ul>`;
+}
+
+function upNext(m) {
+  const nx = nextOf(m), opt = (v, l) => `<option value="${v}" ${(m.next || '') === v ? 'selected' : ''}>${esc(l)}</option>`;
+  return `<div class="upnext">
+    ${nx ? `<a class="btn" href="#w/${nx.id}/${nx.last ?? 0}">Next in series: ${esc(nx.title)} →</a><br>` : ''}
+    <select class="nextsel" data-id="${m.id}">${opt('', 'Next work: automatic (AO3 series)')}${opt('none', 'Next work: none')}
+      ${index.filter(x => x !== m).map(x => opt(x.id, 'Next work: ' + x.title)).join('')}</select></div>`;
 }
 
 function showSettings() {

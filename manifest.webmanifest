@@ -6,7 +6,7 @@
   "display": "standalone",
   "lang": "en",
   "dir": "ltr",
-  "background_color": "#990000",
+  "background_color": "#6e1728",
   "theme_color": "#990000",
   "icons": [
     {
@@ -20,5 +20,22 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "share_target": {
+    "action": "./?share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "text/html",
+            ".html",
+            ".htm"
+          ]
+        }
+      ]
+    }
+  }
 }
