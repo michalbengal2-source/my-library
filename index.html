@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<!-- Blocks any outgoing connection: this page cannot send data to any server -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'">
+<meta name="theme-color" content="#990000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>My Library</title>
+<style>
+  /* Fonts, sizes and colours follow AO3's own stylesheet */
+  :root { --red:#900; --ink:#2a2a2a; --muted:#777; --line:#ddd; --fs:16px;
+          --sans:"Lucida Grande","Lucida Sans Unicode","GNU Unifont",Verdana,Helvetica,sans-serif; --serif:Georgia,serif; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#fff; color:var(--ink); font: 15px/1.5 var(--sans); }
+  a { color:var(--red); }
+  button, select, input { font:inherit; color:#444; }
+  button, select, .btn { background: linear-gradient(#fff 2%, #ddd 95%, #bbb 100%); border:1px solid #bbb; border-bottom-color:#aaa;
+           border-radius:.25em; padding:.3em .75em; cursor:pointer; text-decoration:none; display:inline-block; color:#444; }
+  input[type=search] { padding:6px; border:1px solid #bbb; border-radius:.25em; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .center { text-align:center; padding:40px 10px; }
+  .center button { display:block; margin:12px auto; min-width:220px; }
+
+  header { display:none; position:sticky; top:0; z-index:5; background:var(--red); color:#fff; padding:8px 12px; flex-wrap:wrap; gap:6px; align-items:center; }
+  body.open header { display:flex; }
+  header .brand { color:#fff; font:bold 1.05rem var(--serif); text-decoration:none; flex:1; }
+  header button { padding:4px 9px; font-size:.9rem; background:transparent; color:#fff; border:1px solid #ffffff70; }
+  header button.on { background:#fff; color:var(--red); }
+  main { max-width:900px; margin:0 auto; padding:12px; }
+
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  .toolbar input { flex:1; min-width:180px; }
+  h2.heading { font:normal 1.3rem var(--serif); margin:6px 0 12px; }
+  .tag { color:var(--ink); border-bottom:1px dotted; }
+
+  /* AO3 work blurb (list) */
+  ol.works { list-style:none; padding:0; margin:0; }
+  .blurb { border:1px solid var(--line); box-shadow:1px 1px 3px #0001; padding:12px 14px; margin-bottom:14px; overflow:hidden; }
+  .blurb .hd { display:flex; gap:10px; align-items:flex-start; }
+  .req { display:grid; grid-template-columns:repeat(2, 30px); gap:3px; flex:none; }
+  .sq { width:30px; height:30px; display:grid; place-items:center; color:#fff; font:bold 20px var(--serif); border:1px solid #0002; }
+  .ttl { flex:1; min-width:0; }
+  .ttl h4 { margin:0; font:normal 1.15rem var(--serif); }
+  .ttl h5 { margin:4px 0 0; font:normal .95rem var(--serif); }
+  .date { flex:none; margin:0; font:.78rem monospace; color:var(--muted); }
+  ul.tags { list-style:none; padding:0; margin:10px 0 0; line-height:1.75; }
+  ul.tags li { display:inline; }
+  ul.tags li:not(:last-child)::after { content:", "; }
+  ul.tags .warnings .tag { font-weight:bold; border:0; }
+  blockquote.summary { margin:10px 0 0; }
+  dl.stats { text-align:right; margin:10px 0 0; font-size:.88rem; }
+  dl.stats dt, dl.stats dd { display:inline; margin:0; }
+  dl.stats dd { margin-inline-end:12px; }
+
+  /* Bookshelf */
+  .shelf { display:grid; grid-template-columns:repeat(auto-fill, 104px); justify-content:space-evenly; grid-auto-rows:252px; column-gap:14px; padding:12px 14px 0;
+           background: repeating-linear-gradient(to bottom, transparent 0 238px, #7a4a22 238px 252px); border-radius:6px; }
+  .book { display:flex; flex-direction:column; justify-content:flex-end; align-items:center; text-decoration:none; color:var(--ink); padding-bottom:16px; min-width:0; }
+  .book img { width:104px; height:156px; object-fit:cover; border-radius:2px 5px 5px 2px; box-shadow:3px 3px 6px #0006, inset 4px 0 6px #0003; background:#eee; }
+  .book span { font-size:.75rem; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
+
+  /* AO3 chapter page */
+  ul.actions { list-style:none; padding:0; margin:6px 0 10px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  ul.actions select { max-width:60vw; }
+  .wrapper { border:1px solid var(--line); box-shadow:1px 1px 5px #aaa; padding:.6em 1em; margin:.6em 0 1.5em; }
+  dl.meta { margin:0; }
+  dl.meta dt { margin-top:.6em; }
+  dl.meta dt.warning, dl.meta dd.warning .tag { font-weight:bold; }
+  dl.meta dd { margin:0 0 0 1.5em; }
+  dl.meta .st { margin-right:1.2em; white-space:nowrap; display:inline-block; }
+  .work { font-size:var(--fs); }
+  .preface { text-align:center; margin:2em 0 0; }
+  .preface h2.title { font:normal 2.25em/1.1 var(--serif); margin:0 0 .5em; }
+  .preface h3.byline { font:normal 1.3em var(--serif); margin:0 0 1em; }
+  .preface .cover-big { display:block; max-width:200px; margin:0 auto 1.2em; box-shadow:3px 3px 8px #0005; border-radius:3px; }
+  hr.line { border:0; border-top:1px solid #333; width:75%; margin:0 auto 1.5em; }
+  .module { margin:0 auto 1.5em; width:80%; text-align:left; }
+  h3.heading { font:normal 1.45em var(--serif); border-bottom:1px solid #333; margin:.6em 0 .4em; }
+  .module blockquote { margin:0 0 0 1.2em; }
+  .chapter h3.title { text-align:center; font:normal 1.45em var(--serif); margin:.4em 0 1em; }
+  .chapter h3.title span { border-bottom:1px solid #333; }
+  .userstuff { line-height:1.5; margin:2em 0; }
+  .userstuff p { margin:1.286em auto; }
+  .work p, .work li, .work blockquote { unicode-bidi: plaintext; text-align: start; }
+
+  dialog { border:0; border-radius:10px; padding:20px; width:min(92vw, 360px); }
+  dialog::backdrop { background:var(--red); }
+  dialog input { width:100%; font-size:1.1rem; padding:8px; margin:8px 0; }
+  dialog menu { display:flex; gap:8px; padding:0; margin:8px 0 0; }
+  #dlg-err { color:#d33; min-height:1em; margin:0; }
+  #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 18px; border-radius:20px; z-index:9; }
+
+  /* Reading position: thin light-gray marker on the right edge, never catches taps */
+  #pos { position:fixed; right:2px; top:0; width:3px; border-radius:2px; background:#d0d0d0; pointer-events:none; z-index:4; display:none; }
+
+  @media print {
+    #pos, header, ul.actions, #toast, .cover-big { display:none !important; }
+    .chapter + .chapter { break-before: page; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="#">My Library</a>
+  <button data-do="go" data-arg="" data-tab="">Works</button>
+  <button data-do="go" data-arg="shelf" data-tab="shelf">Bookshelf</button>
+  <button data-do="add">+ Add</button>
+  <button data-do="go" data-arg="settings" data-tab="settings" aria-label="Settings">⚙</button>
+  <button data-do="lock" aria-label="Lock">🔒</button>
+</header>
+<main id="main"></main>
+<input type="file" id="pick" hidden>
+<div id="toast" hidden></div>
+<div id="pos"></div>
+<dialog id="dlg">
+  <form method="dialog">
+    <p id="dlg-msg"></p>
+    <input id="dlg-pw" type="password" autocomplete="current-password">
+    <p id="dlg-err"></p>
+    <menu><button value="ok">OK</button><button value="" id="dlg-cancel">Cancel</button></menu>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
+let key = null, index = [], cache = {}, covers = {}, query = '', hiddenAt = 0;
+
+/* ---------- Local storage (IndexedDB) ---------- */
+const dbp = new Promise((ok, no) => {
+  const r = indexedDB.open('my-library', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+});
+async function store(mode, fn) {
+  const t = (await dbp).transaction('kv', mode), req = fn(t.objectStore('kv'));
+  return new Promise((ok, no) => { t.oncomplete = () => ok(req.result); t.onerror = () => no(t.error); });
+}
+const get = k => store('readonly', s => s.get(k));
+const put = (k, v) => store('readwrite', s => s.put(v, k));
+const del = k => store('readwrite', s => s.delete(k));
+async function entries() {
+  const [keys, vals] = await Promise.all([store('readonly', s => s.getAllKeys()), store('readonly', s => s.getAll())]);
+  return Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+}
+
+/* ---------- Encryption: AES-GCM, key derived from the password ---------- */
+async function deriveKey(pw, salt) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function seal(k, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, enc.encode(JSON.stringify(obj))));
+  const out = new Uint8Array(12 + data.length); out.set(iv); out.set(data, 12); return out;
+}
+async function unseal(k, u) {
+  return JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12))));
+}
+const saveIndex = async () => put('index', await seal(key, index));
+const getCover = async id => covers[id] ??= await unseal(key, await get('c:' + id));
+
+/* ---------- Small helpers ---------- */
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const txt = el => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const chName = (c, i) => c.title || 'Chapter ' + (i + 1);
+const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+const pref = (k, v) => { try { return v === undefined ? localStorage[k] : (localStorage[k] = v); } catch {} };
+function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 3500); }
+
+function askPassword(msg, cancelable = true, err = '') {
+  const d = $('#dlg');
+  $('#dlg-msg').textContent = msg; $('#dlg-err').textContent = err;
+  $('#dlg-pw').value = ''; $('#dlg-cancel').hidden = !cancelable; d.returnValue = '';
+  d.oncancel = e => cancelable || e.preventDefault();
+  d.showModal();
+  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : null));
+}
+function pickFiles(accept, multiple = false) {
+  const p = $('#pick'); Object.assign(p, { accept, multiple, value: '' });
+  return new Promise(ok => { p.onchange = () => ok([...p.files]); p.click(); });
+}
+function readBackup(text) {
+  try {
+    const o = JSON.parse(text);
+    return o.app === 'my-library' ? Object.fromEntries(Object.entries(o.data).map(([k, v]) => [k, unb64(v)])) : null;
+  } catch { return null; }
+}
+
+/* ---------- Parsing an AO3 HTML download ---------- */
+function parseWork(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,link,iframe,object,embed,form,meta,p.message').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(el => [...el.attributes].forEach(a => {
+    if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+  }));
+  const pre = doc.querySelector('#preface') || doc.createElement('div');
+  const after = doc.querySelector('#afterword');
+  const block = label => [...pre.querySelectorAll('p')].find(p => txt(p) === label)?.nextElementSibling?.innerHTML.trim() || '';
+  const tags = [...pre.querySelectorAll('dl.tags dt')].map(dt =>
+    [txt(dt).replace(/:$/, ''), txt(dt.nextElementSibling).split(/,\s+/).filter(Boolean)]);
+  const stats = tags.find(([l]) => /^stats/i.test(l))?.[1].join(' ') || '';
+  const chapters = splitChapters(doc.querySelector('#chapters') || doc.body);
+  return {
+    meta: {
+      title: txt(pre.querySelector('h1')) || txt(doc.querySelector('title')) || 'Untitled',
+      author: txt(pre.querySelector('.byline')).replace(/^by\s+/i, ''),
+      tags, summary: block('Summary'),
+      words: stats.match(/Words:\s*([\d,]+)/)?.[1] || '?',
+      chapters: stats.match(/Chapters:\s*(\S+)/)?.[1] || chapters.length,
+      date: [...stats.matchAll(/(\d{4}-\d\d-\d\d)/g)].pop()?.[1] || '',
+      last: null,
+    },
+    work: { notes: block('Notes'), after: txt(after) ? after.innerHTML.trim() : '', chapters },
+  };
+}
+function splitChapters(box) {
+  const out = []; let cur;
+  for (const el of box.children) {
+    const head = el.matches('div.meta') && el.querySelector('h2.heading');
+    if (head) { head.remove(); out.push(cur = { title: txt(head), notes: el.innerHTML.trim(), body: '', end: '' }); }
+    else if (cur) cur[el.matches('.meta, .endnotes') ? 'end' : 'body'] += el.outerHTML;
+  }
+  return out.length ? out : [{ title: '', notes: '', body: box.innerHTML, end: '' }];
+}
+
+/* ---------- Unlock and lock ---------- */
+async function start() {
+  key = null; index = []; cache = {}; covers = {}; main.innerHTML = '';
+  document.body.classList.remove('open');
+  const salt = await get('salt');
+  if (!salt) return showWelcome();
+  for (let err = ''; !key;) {
+    const pw = await askPassword('Enter your password to open the library', false, err);
+    try { const k = await deriveKey(pw || '', salt); index = await unseal(k, await get('index')); key = k; }
+    catch { err = 'Wrong password, try again'; }
+  }
+  enter();
+}
+function enter() {
+  document.body.classList.add('open');
+  navigator.storage?.persist?.();   // asks the phone not to clear this data when space runs low
+  route();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (key && Date.now() - hiddenAt > 5 * 60e3) start();   // auto-lock after 5 minutes in the background
+});
+
+/* ---------- Actions ---------- */
+const actions = {
+  go: v => location.hash = v,
+  lock: start,
+  print: () => print(),
+  top: () => scrollTo(0, 0),
+  font(d) { pref('fs', Math.min(28, Math.max(12, (+pref('fs') || 17) + +d))); applyFont(); },
+  async create() {
+    const pw = await askPassword('Choose a password (at least 4 characters). If you forget it, the library cannot be recovered.');
+    if (!pw) return;
+    if (pw.length < 4) return toast('Password is too short');
+    if (await askPassword('Type the password again to confirm') !== pw) return toast("Passwords don't match");
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    key = await deriveKey(pw, salt); index = [];
+    await put('salt', salt); await saveIndex(); enter();
+  },
+  async restore() {
+    const [f] = await pickFiles('.json,application/json');
+    const data = f && readBackup(await f.text());
+    if (!data) return f && toast('This is not a library backup file');
+    for (const k in data) await put(k, data[k]);
+    start();
+  },
+  async add() {
+    const files = await pickFiles('.html,.htm,text/html', true);
+    for (const f of files) {
+      const { meta, work } = parseWork(await f.text());
+      const old = index.find(m => m.title === meta.title && m.author === meta.author);
+      Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, readAt: old?.readAt,
+                            cover: old?.cover, added: old?.added || Date.now() });
+      await put('w:' + meta.id, await seal(key, work));
+      index = [meta, ...index.filter(m => m !== old)];
+      if (cache.id === meta.id) cache = {};
+    }
+    if (!files.length) return;
+    await saveIndex();
+    toast(files.length === 1 ? 'Work added to your library' : `${files.length} works added`);
+    location.hash === '' ? route() : location.hash = '';
+  },
+  async cover(id) {
+    const [f] = await pickFiles('image/*');
+    if (!f) return;
+    const img = await createImageBitmap(f), s = Math.min(1, 480 / img.width);
+    const cv = Object.assign(document.createElement('canvas'), { width: img.width * s | 0, height: img.height * s | 0 });
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    covers[id] = cv.toDataURL('image/jpeg', 0.85);
+    await put('c:' + id, await seal(key, covers[id]));
+    index.find(m => m.id === id).cover = true; await saveIndex(); route();
+  },
+  async uncover(id) {
+    await del('c:' + id); delete covers[id];
+    index.find(m => m.id === id).cover = false; await saveIndex(); route();
+  },
+  async backup() {
+    const data = Object.fromEntries(Object.entries(await entries()).map(([k, v]) => [k, b64(v)]));
+    const file = new File([JSON.stringify({ app: 'my-library', v: 1, data })],
+      `library-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    if (navigator.canShare?.({ files: [file] })) return navigator.share({ files: [file] }).catch(() => {});
+    Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name }).click();
+  },
+  async merge() {
+    const [f] = await pickFiles('.json,application/json');
+    const data = f && readBackup(await f.text());
+    if (!data) return f && toast('This is not a library backup file');
+    const pw = await askPassword("Enter the backup file's password");
+    if (!pw) return;
+    let bk, list;
+    try { bk = await deriveKey(pw, data.salt); list = await unseal(bk, data.index); }
+    catch { return toast('Wrong password for this file'); }
+    const added = list.filter(m => !index.some(x => x.id === m.id));
+    for (const m of added) for (const k of ['w:' + m.id, 'c:' + m.id])
+      if (data[k]) await put(k, await seal(key, await unseal(bk, data[k])));
+    index.push(...added); await saveIndex();
+    toast(`${added.length} works added from the backup`); route();
+  },
+  async remove(id) {
+    if (!confirm('Delete this work from your library?')) return;
+    await Promise.all([del('w:' + id), del('c:' + id)]);
+    index = index.filter(m => m.id !== id); await saveIndex();
+    location.hash = '';
+  },
+};
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-do]');
+  if (b) actions[b.dataset.do](b.dataset.arg);
+});
+main.addEventListener('change', e => e.target.matches('.chsel') && (location.hash = e.target.value));
+const applyFont = () => document.documentElement.style.setProperty('--fs', (+pref('fs') || 17) + 'px');
+
+/* ---------- Screens ---------- */
+function route() {
+  if (!key) return;
+  const [view, id, ch] = location.hash.slice(1).split('/');
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === view));
+  scrollTo(0, 0);
+  updatePos();
+  if (view === 'w') return showWork(id, ch).then(updatePos);
+  if (view === 'shelf') return showShelf();
+  if (view === 'settings') return showSettings();
+  showList();
+}
+addEventListener('hashchange', route);
+
+function updatePos() {
+  const pos = $('#pos'), total = document.documentElement.scrollHeight, max = total - innerHeight;
+  pos.style.display = key && location.hash.startsWith('#w/') && max > 0 ? 'block' : 'none';
+  const len = Math.max(24, innerHeight * innerHeight / total);
+  Object.assign(pos.style, { height: len + 'px', top: scrollY / max * (innerHeight - len) + 'px' });
+}
+addEventListener('scroll', updatePos, { passive: true });
+addEventListener('resize', updatePos);
+
+function showWelcome() {
+  main.innerHTML = `<div class="center">
+    <h2>My Library</h2>
+    <p class="muted">Everything is stored encrypted on this phone only. Nothing is ever sent anywhere.</p>
+    <button data-do="create">Create a new library</button>
+    <button data-do="restore">Restore from a backup file</button></div>`;
+}
+
+/* AO3 "required tags" squares: rating, category, warnings, completion */
+const tagsOf = (m, re) => m.tags.filter(([l]) => re.test(l)).flatMap(([, v]) => v);
+const sq = (sym, bg, title) => `<span class="sq" style="background:${bg}" title="${esc(title)}">${sym}</span>`;
+const RATINGS = [['general', 'G', '#77a170'], ['teen', 'T', '#e4c400'], ['mature', 'M', '#e9711c'], ['explicit', 'E', '#9c0000']];
+const CATS = { 'f/f': ['♀', '#c21f4c'], 'f/m': ['⚥', '#7a2c8f'], 'm/m': ['♂', '#1f5fb5'], 'gen': ['○', '#77a170'], 'other': ['?', '#222'] };
+function required(m) {
+  const rating = tagsOf(m, /^rating/i).join(), warn = tagsOf(m, /^archive warning/i).join(), cats = tagsOf(m, /^categor/i);
+  const [, r, rc] = RATINGS.find(([k]) => rating.toLowerCase().includes(k)) || [, '', '#fff'];
+  const [c, cc] = cats.length > 1 ? ['', 'linear-gradient(135deg,#c21f4c,#e9711c,#e4c400,#77a170,#1f5fb5,#7a2c8f)']
+                                  : CATS[(cats[0] || '').toLowerCase()] || ['', '#fff'];
+  const done = /^(\d+)\/\1$/.test(m.chapters);
+  return `<div class="req">
+    ${sq(r, rc, rating || 'Not Rated')}${sq(c, cc, cats.join(', ') || 'No category')}
+    ${/no archive warnings/i.test(warn) || !warn ? sq('', '#fff', warn || 'No warnings')
+      : /chose not/i.test(warn) ? sq('!?', '#e9711c', warn) : sq('!', '#9c0000', warn)}
+    ${sq(done ? '✓' : '⊘', done ? '#77a170' : '#9c0000', done ? 'Complete Work' : 'Work in Progress')}</div>`;
+}
+function blurb(m) {
+  const group = (re, cls) => tagsOf(m, re).map(t => `<li class="${cls}"><span class="tag">${esc(t)}</span></li>`).join('');
+  const lang = tagsOf(m, /^language/i).join(', ');
+  return `<li class="blurb">
+    <div class="hd">${required(m)}
+      <div class="ttl"><h4><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a> by ${esc(m.author)}</h4>
+        <h5>${esc(tagsOf(m, /^fandom/i).join(', '))}</h5></div>
+      <p class="date">${fmtDate(m.date)}</p></div>
+    <ul class="tags">${group(/^archive warning/i, 'warnings')}${group(/^relationship/i, '')}${group(/^character/i, '')}${group(/^additional/i, '')}</ul>
+    ${m.summary ? `<blockquote class="summary">${m.summary}</blockquote>` : ''}
+    <dl class="stats">${lang ? `<dt>Language:</dt> <dd>${esc(lang)}</dd>` : ''}
+      <dt>Words:</dt> <dd>${esc(m.words)}</dd> <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
+      <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>
+  </li>`;
+}
+
+const SORTS = {
+  updated: ['Date Updated', m => m.date || ''], added: ['Date Added', m => m.added], read: ['Recently Read', m => m.readAt || 0],
+  title: ['Title', m => m.title.toLowerCase(), 1], author: ['Author', m => m.author.toLowerCase(), 1],
+  words: ['Word Count', m => +String(m.words).replace(/\D/g, '') || 0],
+};
+function filtered() {
+  const [, val, asc] = SORTS[pref('sort')] || SORTS.updated, q = query.toLowerCase();
+  return index.filter(m => JSON.stringify(m).toLowerCase().includes(q))
+    .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1));
+}
+function toolbar(draw) {
+  main.innerHTML = `<div class="toolbar"><input id="q" type="search" placeholder="Search title, author, fandom or tag" value="${esc(query)}">
+    <select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === (pref('sort') || 'updated') ? 'selected' : ''}>Sort by ${l}</option>`).join('')}</select></div>
+    <div id="out"></div>`;
+  $('#q').oninput = () => { query = $('#q').value; draw(); };
+  $('#sort').onchange = () => { pref('sort', $('#sort').value); draw(); };
+  draw();
+}
+
+function showList() {
+  document.title = 'My Library';
+  toolbar(() => {
+    const list = filtered();
+    $('#out').innerHTML = `<h2 class="heading">${list.length} Work${list.length === 1 ? '' : 's'} in My Library</h2>
+      <ol class="works">${list.map(blurb).join('')}</ol>` +
+      (index.length ? '' : '<p class="center muted">Your library is empty. Tap "+ Add" and choose an HTML file downloaded from AO3.</p>');
+  });
+}
+
+function showShelf() {
+  document.title = 'Bookshelf';
+  toolbar(async () => {
+    const list = filtered().filter(m => m.cover);
+    $('#out').innerHTML = list.length
+      ? `<div class="shelf">${list.map(m => `<a class="book" href="#w/${m.id}/${m.last ?? 0}" title="${esc(m.title)}"><img data-id="${m.id}" alt=""><span>${esc(m.title)}</span></a>`).join('')}</div>`
+      : '<p class="center muted">No covers yet. Open a work and tap "Cover" to add one.</p>';
+    for (const img of main.querySelectorAll('img[data-id]')) img.src = await getCover(img.dataset.id);
+  });
+}
+
+/* AO3 download labels ("Chapter Notes", "End Notes"...) become AO3-style "Notes:" headings */
+const labels = html => html.replace(/<p>\s*(?:Chapter\s+)?(Summary|Notes|End Notes)\s*<\/p>/gi,
+  (_, t) => `<h3 class="heading">${/notes/i.test(t) ? 'Notes' : 'Summary'}:</h3>`);
+const module = html => html ? `<div class="module">${labels(html)}</div>` : '';
+
+async function showWork(id, ch) {
+  const m = index.find(x => x.id === id);
+  if (!m) return location.hash = '';
+  if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
+  const w = cache.w, n = w.chapters.length, all = ch === 'all', i = all ? 0 : Math.min(+ch || 0, n - 1);
+  if (!all) { m.last = i; m.readAt = Date.now(); saveIndex(); }
+  const shown = all ? w.chapters.map((c, j) => [c, j]) : [[w.chapters[i], i]];
+  document.title = m.title + (all || n === 1 ? '' : ' - ' + chName(w.chapters[i], i));
+  const btn = (j, label) => `<li><a class="btn" href="#w/${id}/${j}">${label}</a></li>`;
+  const prev = !all && i > 0 ? btn(i - 1, '← Previous Chapter') : '';
+  const next = !all && i < n - 1 ? btn(i + 1, 'Next Chapter →') : '';
+  const dd = (l, v) => /^stats/i.test(l)
+    ? v.join(' ').replace(/(\S+:)\s*(\S+)/g, (_, a, b) => `<span class="st">${esc(a)} ${esc(b)}</span>`)
+    : v.map(t => `<span class="tag">${esc(t)}</span>`).join(', ');
+  const warn = l => /warning/i.test(l) ? 'warning' : '';
+
+  main.innerHTML = `
+    <ul class="actions">
+      ${n > 1 ? (all ? btn(m.last ?? 0, 'Chapter by Chapter') : btn('all', 'Entire Work')) : ''}
+      ${prev}${next}
+      ${n > 1 ? `<li><select class="chsel">${w.chapters.map((c, j) => `<option value="w/${id}/${j}" ${!all && j === i ? 'selected' : ''}>${esc(j + 1 + '. ' + chName(c, j))}</option>`).join('')}</select></li>` : ''}
+      <li><button data-do="font" data-arg="-1">A−</button></li><li><button data-do="font" data-arg="1">A+</button></li>
+      <li><button data-do="print">PDF</button></li>
+      <li><button data-do="cover" data-arg="${id}">${m.cover ? 'Change Cover' : 'Add Cover'}</button></li>
+      ${m.cover ? `<li><button data-do="uncover" data-arg="${id}">Remove Cover</button></li>` : ''}
+      <li><button data-do="remove" data-arg="${id}">Delete</button></li>
+    </ul>
+    <div class="wrapper"><dl class="meta">${m.tags.map(([l, v]) =>
+      `<dt class="${warn(l)}">${esc(l)}:</dt><dd class="${warn(l)}">${dd(l, v)}</dd>`).join('')}</dl></div>
+    <div class="work">
+      <div class="preface">
+        ${m.cover && (all || i === 0) ? `<img class="cover-big" src="${await getCover(id)}" alt="">` : ''}
+        <h2 class="title">${esc(m.title)}</h2><h3 class="byline">${esc(m.author)}</h3><hr class="line">
+        ${all || i === 0 ? module((m.summary ? `<p>Summary</p><blockquote>${m.summary}</blockquote>` : '') + (w.notes ? `<p>Notes</p><blockquote>${w.notes}</blockquote>` : '')) : ''}
+      </div>
+      ${shown.map(([c, j]) => `<section class="chapter">
+        ${n > 1 ? `<h3 class="title"><span>${esc(chName(c, j))}</span></h3>` : ''}
+        ${module(c.notes)}
+        <div class="userstuff">${c.body}</div>
+        ${module(c.end)}
+      </section>`).join('')}
+      ${all || i === n - 1 ? module(w.after) : ''}
+    </div>
+    <ul class="actions">${prev}${next}<li><button data-do="top">↑ Top</button></li></ul>`;
+}
+
+function showSettings() {
+  document.title = 'Settings';
+  main.innerHTML = `<h2 class="heading">Backup &amp; moving to another phone</h2>
+    <p>The backup file is encrypted with your password, so it can't be read without it. Send it to yourself any way you like
+       (cable, Drive, WhatsApp), then on the new phone open the app and choose "Restore from a backup file".</p>
+    <p><button data-do="backup">Create a backup file</button></p>
+    <p><button data-do="merge">Add works from a backup file to this library</button></p>
+    <h2 class="heading">Reading text size</h2>
+    <p><button data-do="font" data-arg="-1">A−</button> <button data-do="font" data-arg="1">A+</button></p>
+    <p class="muted">${index.length} works in your library · auto-locks after 5 minutes in the background</p>`;
+}
+
+applyFont();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+start();
+</script>
+</body>
+</html>
