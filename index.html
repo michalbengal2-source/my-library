@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- חוסם כל שליחה של מידע החוצה: הדף לא יכול לפנות לשום שרת -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'">
+<meta name="theme-color" content="#990000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>הספרייה שלי</title>
+<style>
+  :root { --red:#990000; --bg:#fff; --ink:#2a2a2a; --muted:#6b6b6b; --line:#ddd; --soft:#f3f3f3; --fs:17px; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1b1b; --ink:#e8e8e8; --muted:#a5a5a5; --line:#3a3a3a; --soft:#262626; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font: 15px/1.5 "Lucida Grande", system-ui, sans-serif; }
+  header { display:none; position:sticky; top:0; z-index:5; background:var(--red); color:#fff; padding:10px 14px; align-items:center; gap:8px; }
+  body.open header { display:flex; }
+  header a { color:#fff; text-decoration:none; font-weight:bold; font-size:1.1rem; flex:1; }
+  button { font:inherit; border:1px solid var(--line); background:var(--soft); color:var(--ink); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  header button { background:transparent; color:#fff; border-color:#ffffff66; }
+  main { max-width:820px; margin:0 auto; padding:14px; }
+  a { color:var(--red); }
+  @media (prefers-color-scheme: dark) { a { color:#ff8080; } }
+  input[type=search], select { width:100%; font:inherit; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .center { text-align:center; padding:40px 10px; }
+  .center button { display:block; margin:12px auto; min-width:220px; }
+
+  /* כרטיס יצירה בסגנון AO3 */
+  ol.works { list-style:none; padding:0; margin:0; }
+  .blurb { border-bottom:1px solid var(--line); padding:14px 0; }
+  .blurb h3 { display:inline; font-size:1.1rem; margin:0; }
+  .rating { float:left; font-size:.75rem; border:1px solid var(--line); padding:1px 6px; border-radius:3px; }
+  .fandom { margin:2px 0 6px; font-weight:bold; font-size:.9rem; }
+  ul.tags { list-style:none; padding:0; margin:4px 0; font-size:.88rem; }
+  ul.tags li { display:inline; }
+  ul.tags li + li::before { content:" · "; color:var(--muted); }
+  ul.tags .archive { font-weight:bold; }
+  ul.tags .relationship { color:var(--red); }
+  blockquote { margin:8px 0; padding:0 12px; border-inline-start:3px solid var(--line); }
+
+  /* דף קריאה */
+  .worknav { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .worknav select { flex:1; min-width:160px; width:auto; }
+  .preface { background:var(--soft); border-radius:8px; padding:8px 12px; font-size:.9rem; }
+  .preface summary { cursor:pointer; font-weight:bold; }
+  .preface dt { font-weight:bold; float:right; clear:right; margin-inline-end:6px; }
+  .preface dd { margin:0 0 4px; }
+  .work { font: var(--fs)/1.7 Georgia, "Times New Roman", serif; }
+  .work p, .work li, .work dd, .work blockquote, .blurb p, .blurb li { unicode-bidi: plaintext; text-align: start; }  /* כל פסקה בכיוון של השפה שלה */
+  .work h2.title { text-align:center; margin:18px 0 0; }
+  .work .byline { text-align:center; margin-top:2px; }
+  .chapter h3 { text-align:center; margin:28px 0 14px; }
+  .notes { font-size:.88em; border:1px solid var(--line); border-radius:6px; padding:4px 12px; margin:12px 0; }
+  .pager { display:flex; justify-content:space-between; margin:30px 0 50px; }
+
+  dialog { border:0; border-radius:12px; padding:20px; width:min(92vw, 360px); background:var(--bg); color:var(--ink); }
+  dialog::backdrop { background: var(--red); }
+  dialog input { width:100%; font-size:1.1rem; padding:8px; margin:8px 0; }
+  dialog menu { display:flex; gap:8px; padding:0; margin:8px 0 0; }
+  #dlg-err { color:#d33; min-height:1em; margin:0; }
+  #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 18px; border-radius:20px; }
+
+  @media print {
+    header, .worknav, .pager, #toast { display:none !important; }
+    body { background:#fff; color:#000; }
+    .chapter + .chapter { break-before: page; }
+    .preface:not([open]) { display:none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <a href="#">📚 הספרייה שלי</a>
+  <button data-do="add">+ הוספה</button>
+  <button data-do="go" data-arg="settings" aria-label="הגדרות">⚙</button>
+  <button data-do="lock" aria-label="נעילה">🔒</button>
+</header>
+<main id="main"></main>
+<input type="file" id="pick" hidden>
+<div id="toast" hidden></div>
+<dialog id="dlg">
+  <form method="dialog">
+    <p id="dlg-msg"></p>
+    <input id="dlg-pw" type="password" autocomplete="current-password">
+    <p id="dlg-err"></p>
+    <menu><button value="ok">אישור</button><button value="" id="dlg-cancel">ביטול</button></menu>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
+let key = null, index = [], cache = {}, query = '', hiddenAt = 0;
+
+/* ---------- אחסון מקומי (IndexedDB) ---------- */
+const dbp = new Promise((ok, no) => {
+  const r = indexedDB.open('my-library', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+});
+async function store(mode, fn) {
+  const t = (await dbp).transaction('kv', mode), req = fn(t.objectStore('kv'));
+  return new Promise((ok, no) => { t.oncomplete = () => ok(req.result); t.onerror = () => no(t.error); });
+}
+const get = k => store('readonly', s => s.get(k));
+const put = (k, v) => store('readwrite', s => s.put(v, k));
+const del = k => store('readwrite', s => s.delete(k));
+async function entries() {
+  const [keys, vals] = await Promise.all([store('readonly', s => s.getAllKeys()), store('readonly', s => s.getAll())]);
+  return Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+}
+
+/* ---------- הצפנה: AES-GCM עם מפתח שנגזר מהסיסמה ---------- */
+async function deriveKey(pw, salt) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function seal(k, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, enc.encode(JSON.stringify(obj))));
+  const out = new Uint8Array(12 + data.length); out.set(iv); out.set(data, 12); return out;
+}
+async function unseal(k, u) {
+  return JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12))));
+}
+const saveIndex = async () => put('index', await seal(key, index));
+
+/* ---------- כלים קטנים ---------- */
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const txt = el => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const chName = (c, i) => c.title || 'פרק ' + (i + 1);
+function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 3500); }
+
+function askPassword(msg, cancelable = true, err = '') {
+  const d = $('#dlg');
+  $('#dlg-msg').textContent = msg; $('#dlg-err').textContent = err;
+  $('#dlg-pw').value = ''; $('#dlg-cancel').hidden = !cancelable; d.returnValue = '';
+  d.oncancel = e => cancelable || e.preventDefault();
+  d.showModal();
+  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : null));
+}
+function pickFiles(accept, multiple = false) {
+  const p = $('#pick'); Object.assign(p, { accept, multiple, value: '' });
+  return new Promise(ok => { p.onchange = () => ok([...p.files]); p.click(); });
+}
+function readBackup(text) {
+  try {
+    const o = JSON.parse(text);
+    return o.app === 'my-library' ? Object.fromEntries(Object.entries(o.data).map(([k, v]) => [k, unb64(v)])) : null;
+  } catch { return null; }
+}
+
+/* ---------- פירוק קובץ HTML של AO3 ---------- */
+function parseWork(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,link,iframe,object,embed,form,meta,p.message').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(el => [...el.attributes].forEach(a => {
+    if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+  }));
+  const pre = doc.querySelector('#preface') || doc.createElement('div');
+  const after = doc.querySelector('#afterword');
+  const block = label => [...pre.querySelectorAll('p')].find(p => txt(p) === label)?.nextElementSibling?.innerHTML.trim() || '';
+  const tags = [...pre.querySelectorAll('dl.tags dt')].map(dt =>
+    [txt(dt).replace(/:$/, ''), txt(dt.nextElementSibling).split(/,\s+/).filter(Boolean)]);
+  const stats = tags.find(([l]) => /^stats/i.test(l))?.[1].join(' ') || '';
+  const chapters = splitChapters(doc.querySelector('#chapters') || doc.body);
+  return {
+    meta: {
+      title: txt(pre.querySelector('h1')) || txt(doc.querySelector('title')) || 'ללא שם',
+      author: txt(pre.querySelector('.byline')).replace(/^by\s+/i, ''),
+      tags, summary: block('Summary'),
+      words: stats.match(/Words:\s*([\d,]+)/)?.[1] || '?',
+      chapters: stats.match(/Chapters:\s*(\S+)/)?.[1] || chapters.length,
+      last: null,
+    },
+    work: { notes: block('Notes'), after: txt(after) ? after.innerHTML.trim() : '', chapters },
+  };
+}
+function splitChapters(box) {
+  const out = []; let cur;
+  for (const el of box.children) {
+    const head = el.matches('div.meta') && el.querySelector('h2.heading');
+    if (head) { head.remove(); out.push(cur = { title: txt(head), notes: el.innerHTML.trim(), body: '', end: '' }); }
+    else if (cur) cur[el.matches('.meta, .endnotes') ? 'end' : 'body'] += el.outerHTML;
+  }
+  return out.length ? out : [{ title: '', notes: '', body: box.innerHTML, end: '' }];
+}
+
+/* ---------- כניסה ונעילה ---------- */
+async function start() {
+  key = null; index = []; cache = {}; main.innerHTML = '';
+  document.body.classList.remove('open');
+  const salt = await get('salt');
+  if (!salt) return showWelcome();
+  for (let err = ''; !key;) {
+    const pw = await askPassword('הזינו את הסיסמה כדי להיכנס לספרייה', false, err);
+    try { const k = await deriveKey(pw || '', salt); index = await unseal(k, await get('index')); key = k; }
+    catch { err = 'סיסמה שגויה, נסו שוב'; }
+  }
+  enter();
+}
+function enter() {
+  document.body.classList.add('open');
+  navigator.storage?.persist?.();   // מבקש מהטלפון לא למחוק את הנתונים כשחסר מקום
+  route();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (key && Date.now() - hiddenAt > 5 * 60e3) start();   // נעילה אוטומטית אחרי 5 דקות ברקע
+});
+
+/* ---------- פעולות ---------- */
+const actions = {
+  go: v => location.hash = v,
+  lock: start,
+  print: () => print(),
+  font(d) {
+    const fs = Math.min(28, Math.max(12, (+localStorage.fs || 17) + +d));
+    localStorage.fs = fs; applyFont();
+  },
+  async create() {
+    const pw = await askPassword('בחרו סיסמה לספרייה (לפחות 4 תווים). אם הסיסמה תישכח, אי אפשר יהיה לשחזר את הספרייה.');
+    if (!pw) return;
+    if (pw.length < 4) return toast('הסיסמה קצרה מדי');
+    if (await askPassword('הקלידו את הסיסמה שוב לאימות') !== pw) return toast('הסיסמאות לא תואמות');
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    key = await deriveKey(pw, salt); index = [];
+    await put('salt', salt); await saveIndex(); enter();
+  },
+  async restore() {
+    const [f] = await pickFiles('.json,application/json');
+    const data = f && readBackup(await f.text());
+    if (!data) return f && toast('זה לא קובץ גיבוי של הספרייה');
+    for (const k in data) await put(k, data[k]);
+    start();
+  },
+  async add() {
+    const files = await pickFiles('.html,.htm,text/html', true);
+    for (const f of files) {
+      const { meta, work } = parseWork(await f.text());
+      const old = index.find(m => m.title === meta.title && m.author === meta.author);
+      Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, added: old?.added || Date.now() });
+      await put('w:' + meta.id, await seal(key, work));
+      index = [meta, ...index.filter(m => m !== old)];
+      if (cache.id === meta.id) cache = {};
+    }
+    if (!files.length) return;
+    await saveIndex();
+    toast(files.length === 1 ? 'הפאנפיק נוסף לספרייה' : `נוספו ${files.length} פאנפיקים`);
+    location.hash = ''; route();
+  },
+  async backup() {
+    const data = Object.fromEntries(Object.entries(await entries()).map(([k, v]) => [k, b64(v)]));
+    const file = new File([JSON.stringify({ app: 'my-library', v: 1, data })],
+      `library-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    if (navigator.canShare?.({ files: [file] })) return navigator.share({ files: [file] }).catch(() => {});
+    Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name }).click();
+  },
+  async merge() {
+    const [f] = await pickFiles('.json,application/json');
+    const data = f && readBackup(await f.text());
+    if (!data) return f && toast('זה לא קובץ גיבוי של הספרייה');
+    const pw = await askPassword('הזינו את הסיסמה של קובץ הגיבוי');
+    if (!pw) return;
+    let bk, list;
+    try { bk = await deriveKey(pw, data.salt); list = await unseal(bk, data.index); }
+    catch { return toast('סיסמה שגויה לקובץ הזה'); }
+    const added = list.filter(m => !index.some(x => x.id === m.id));
+    for (const m of added) await put('w:' + m.id, await seal(key, await unseal(bk, data['w:' + m.id])));
+    index.push(...added); await saveIndex();
+    toast(`נוספו ${added.length} פאנפיקים מהגיבוי`); route();
+  },
+  async remove(id) {
+    if (!confirm('למחוק את הפאנפיק מהספרייה?')) return;
+    await del('w:' + id); index = index.filter(m => m.id !== id); await saveIndex();
+    location.hash = '';
+  },
+};
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-do]');
+  if (b) actions[b.dataset.do](b.dataset.arg);
+});
+main.addEventListener('change', e => e.target.matches('.chsel') && (location.hash = e.target.value));
+const applyFont = () => document.documentElement.style.setProperty('--fs', (+localStorage.fs || 17) + 'px');
+
+/* ---------- מסכים ---------- */
+function route() {
+  if (!key) return;
+  const [view, id, ch] = location.hash.slice(1).split('/');
+  if (view === 'w') return showWork(id, ch);
+  if (view === 'settings') return showSettings();
+  showLibrary();
+}
+addEventListener('hashchange', route);
+
+function showWelcome() {
+  main.innerHTML = `<div class="center">
+    <h2>📚 הספרייה שלי</h2>
+    <p class="muted">הכול נשמר מוצפן רק בטלפון הזה. שום דבר לא נשלח לשום מקום.</p>
+    <button data-do="create">יצירת ספרייה חדשה</button>
+    <button data-do="restore">שחזור מקובץ גיבוי</button></div>`;
+}
+
+const tagsOf = (m, re) => m.tags.filter(([l]) => re.test(l)).flatMap(([, v]) => v);
+const tagList = (m, re) => `<ul class="tags">${m.tags.filter(([l]) => re.test(l))
+  .flatMap(([l, v]) => v.map(t => `<li class="${esc(l.split(' ')[0].toLowerCase())}">${esc(t)}</li>`)).join('')}</ul>`;
+
+function blurb(m) {
+  return `<li class="blurb" dir="auto">
+    <span class="rating">${esc(tagsOf(m, /^rating/i).join(', '))}</span>
+    <h3><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a></h3> <span class="muted">${esc(m.author)}</span>
+    <p class="fandom">${esc(tagsOf(m, /^fandom/i).join(', '))}</p>
+    ${tagList(m, /^(archive|relationship|character|additional)/i)}
+    ${m.summary ? `<blockquote>${m.summary}</blockquote>` : ''}
+    <p class="muted" dir="rtl">מילים: ${esc(m.words)} · פרקים: ${esc(m.chapters)} · ${m.last == null ? 'עוד לא נקרא' : 'נקרא עד פרק ' + (m.last + 1)}</p>
+  </li>`;
+}
+
+function showLibrary() {
+  document.title = 'הספרייה שלי';
+  main.innerHTML = `<input id="q" type="search" placeholder="חיפוש לפי שם, כותב/ת, פאנדום או תגית" value="${esc(query)}">
+    <p class="muted" id="count"></p><ol class="works"></ol>`;
+  const draw = () => {
+    query = $('#q').value;
+    const q = query.toLowerCase(), list = index.filter(m => JSON.stringify(m).toLowerCase().includes(q));
+    $('#count').textContent = `${list.length} פאנפיקים`;
+    $('.works').innerHTML = list.map(blurb).join('') ||
+      `<div class="center muted">${index.length ? 'לא נמצאו תוצאות' : 'הספרייה ריקה. לחצו על "+ הוספה" ובחרו קובץ HTML שהורדתם מ-AO3.'}</div>`;
+  };
+  $('#q').oninput = draw; draw();
+}
+
+async function showWork(id, ch) {
+  const m = index.find(x => x.id === id);
+  if (!m) return location.hash = '';
+  if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
+  const w = cache.w, n = w.chapters.length, all = ch === 'all', i = all ? 0 : Math.min(+ch || 0, n - 1);
+  if (!all && m.last !== i) { m.last = i; saveIndex(); }
+  const shown = all ? w.chapters.map((c, j) => [c, j]) : [[w.chapters[i], i]];
+  document.title = m.title + (all || n === 1 ? '' : ' - ' + chName(w.chapters[i], i));
+  const opt = (v, label, sel) => `<option value="w/${id}/${v}" ${sel ? 'selected' : ''}>${esc(label)}</option>`;
+  const link = (j, label) => `<a href="#w/${id}/${j}">${label}</a>`;
+
+  main.innerHTML = `
+    <nav class="worknav">
+      <a href="#">→ לספרייה</a>
+      ${n > 1 ? `<select class="chsel" dir="auto">${w.chapters.map((c, j) => opt(j, chName(c, j), !all && j === i)).join('')}${opt('all', 'כל היצירה', all)}</select>` : ''}
+      <button data-do="font" data-arg="-1">א-</button><button data-do="font" data-arg="1">א+</button>
+      <button data-do="print">PDF</button>
+      <button data-do="remove" data-arg="${id}">מחיקה</button>
+    </nav>
+    <article class="work" dir="auto">
+      <details class="preface" ${all || i === 0 ? 'open' : ''}><summary>פרטי היצירה</summary>
+        <dl>${m.tags.map(([l, v]) => `<dt>${esc(l)}:</dt><dd>${esc(v.join(', '))}</dd>`).join('')}</dl>
+        ${m.summary ? `<b>Summary</b><blockquote>${m.summary}</blockquote>` : ''}
+        ${w.notes ? `<b>Notes</b><blockquote>${w.notes}</blockquote>` : ''}
+      </details>
+      <h2 class="title">${esc(m.title)}</h2><p class="byline">${esc(m.author)}</p>
+      ${shown.map(([c, j]) => `<section class="chapter">
+        ${n > 1 ? `<h3>${esc(chName(c, j))}</h3>` : ''}
+        ${c.notes ? `<div class="notes">${c.notes}</div>` : ''}
+        <div>${c.body}</div>
+        ${c.end ? `<div class="notes">${c.end}</div>` : ''}
+      </section>`).join('')}
+      ${(all || i === n - 1) && w.after ? `<div class="notes">${w.after}</div>` : ''}
+    </article>
+    ${!all && n > 1 ? `<nav class="pager">${i > 0 ? link(i - 1, '→ הפרק הקודם') : '<span></span>'}${i < n - 1 ? link(i + 1, 'הפרק הבא ←') : ''}</nav>` : ''}`;
+  scrollTo(0, 0);
+}
+
+function showSettings() {
+  document.title = 'הגדרות';
+  main.innerHTML = `<h2>גיבוי והעברה לטלפון אחר</h2>
+    <p>קובץ הגיבוי מוצפן בסיסמה שלכם, כך שאי אפשר לקרוא אותו בלעדיה. שלחו אותו לעצמכם בכל דרך (כבל, דרייב, וואטסאפ),
+       ובטלפון החדש פתחו את האפליקציה ובחרו "שחזור מקובץ גיבוי".</p>
+    <p><button data-do="backup">יצירת קובץ גיבוי</button></p>
+    <p><button data-do="merge">הוספת פאנפיקים מקובץ גיבוי לספרייה הקיימת</button></p>
+    <h2>גודל טקסט בקריאה</h2>
+    <p><button data-do="font" data-arg="-1">א-</button> <button data-do="font" data-arg="1">א+</button></p>
+    <p class="muted">${index.length} פאנפיקים בספרייה · נעילה אוטומטית אחרי 5 דקות ברקע</p>
+    <p><a href="#">→ חזרה לספרייה</a></p>`;
+}
+
+applyFont();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+start();
+</script>
+</body>
+</html>
