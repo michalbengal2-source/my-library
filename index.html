@@ -12,10 +12,11 @@
 <title>My Library</title>
 <style>
   /* Fonts, sizes and colours follow AO3's own stylesheet */
-  :root { --red:#900; --ink:#2a2a2a; --muted:#777; --line:#ddd; --fs:16px; --ls:13px;
+  :root { --red:#900; --ink:#2a2a2a; --muted:#777; --line:#ddd; --fs:12px; --ls:12px;
           --sans:"Lucida Grande","Lucida Sans Unicode","GNU Unifont",Verdana,Helvetica,sans-serif; --serif:Georgia,serif; }
   * { box-sizing: border-box; }
-  body { margin:0; background:#fff; color:var(--ink); font: 15px/1.5 var(--sans); }
+  html { font-size:12px; }   /* default text size for the whole app */
+  body { margin:0; background:#fff; color:var(--ink); font: 1rem/1.5 var(--sans); }
   a { color:var(--red); }
   button, select, input { font:inherit; color:#444; }
   button, select, .btn { background: linear-gradient(#fff 2%, #ddd 95%, #bbb 100%); border:1px solid #bbb; border-bottom-color:#aaa;
@@ -27,8 +28,8 @@
 
   header { display:none; position:sticky; top:0; z-index:5; background:var(--red); color:#fff; padding:8px 12px 0; flex-wrap:wrap; align-items:center; }
   body.open header { display:flex; }
-  header .brand { color:#fff; font:bold 1.05rem var(--serif); text-decoration:none; flex:1; }
-  header .icon { background:none; border:0; color:#fff; font-size:1.25rem; padding:0 8px; }
+  header .brand { color:#fff; font:bold 1.35rem var(--serif); text-decoration:none; flex:1; }
+  header .icon { background:none; border:0; color:#fff; font-size:1.6rem; padding:0 8px; }
   header { transition: transform .25s; }
   body.hide-bar header { transform: translateY(-100%); }   /* bar slides away while scrolling down a chapter */
   body.full header { display:none !important; }            /* full screen: no bar at all */
@@ -79,7 +80,7 @@
   ul.groups a { font:1.25em var(--serif); }
   .gctl { display:flex; gap:6px; align-items:center; margin-top:10px; padding-top:8px; border-top:1px dotted #bbb; }
   .gctl span { flex:1; }
-  .upnext select { max-width:70vw; margin-top:8px; font-size:.85rem; }
+  .upnext select { max-width:70vw; margin-top:8px; font-size:1rem; }
 
   /* Bookshelf */
   .shelf { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
@@ -89,7 +90,7 @@
   ul.actions { list-style:none; padding:0; margin:6px 0 10px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
   ul.actions select { max-width:46vw; }
   ul.tools { gap:4px; margin-top:-2px; }
-  ul.tools button, ul.tools .btn, ul.tools select { font-size:.78rem; padding:.15em .6em; }
+  ul.tools button, ul.tools .btn, ul.tools select { font-size:.9rem; padding:.15em .6em; }
   .wrapper { border:1px solid var(--line); box-shadow:1px 1px 5px #aaa; padding:.6em 1em; margin:.6em 0 1.5em; }
   dl.meta { margin:0; }
   dl.meta dt { margin-top:.6em; }
@@ -113,7 +114,7 @@
 
   dialog { border:0; border-radius:10px; padding:20px; width:min(92vw, 360px); }
   dialog::backdrop { background:var(--red); }
-  dialog input { width:100%; font-size:1.1rem; padding:8px; margin:8px 0; }
+  dialog input { width:100%; font-size:1.3rem; padding:8px; margin:8px 0; }
   dialog menu { display:flex; gap:8px; padding:0; margin:8px 0 0; }
   #dlg-err { color:#d33; min-height:1em; margin:0; }
   #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 18px; border-radius:20px; z-index:9; }
@@ -447,7 +448,7 @@ main.addEventListener('change', e => {
   })();
   if (e.target.matches('.nextsel')) { index.find(m => m.id === e.target.dataset.id).next = e.target.value; saveIndex(); route(); }
 });
-const size = k => +pref(k) || { fs: 16, ls: 13 }[k];
+const size = k => +pref(k) || { fs: 12, ls: 12 }[k];
 const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.style.setProperty('--' + k, size(k) + 'px'));
 
 /* ---------- Screens ---------- */
