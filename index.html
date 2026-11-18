@@ -186,7 +186,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.1';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.3';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -564,8 +564,8 @@ const actions = {
       w.chapters.slice(v.a, v.b + 1).forEach((c, j) => L.chapter(chName(c, v.a + j), c.body));
       while (L.pages.length % 2 || L.pages.length < 32) L.newPage(false);   // even page count, and Lulu's 32-page minimum for paperbacks
       const name = safe(m.title + (v.sub ? ' - ' + v.sub : ''));
-      files.push({ name: `${name} - interior.pdf`, url: URL.createObjectURL(await interiorPDF(L)) },
-        { name: `${name} - cover.pdf`, url: URL.createObjectURL(await coverPDF({ title: m.title + (v.sub ? ': ' + v.sub : ''), author: m.author,
+      files.push({ name: `${name} - interior - v${APP_VERSION}.pdf`, url: URL.createObjectURL(await interiorPDF(L)) },
+        { name: `${name} - cover - v${APP_VERSION}.pdf`, url: URL.createObjectURL(await coverPDF({ title: m.title + (v.sub ? ': ' + v.sub : ''), author: m.author,
           sub: v.sub, pages: L.pages.length, img: v.img })) });
     }
     printJob.files = files; renderExport();
@@ -616,8 +616,10 @@ main.addEventListener('change', e => {
     }
     route();
   })();
-  if (e.target.matches('.volok, .volsel')) {
-    printJob.vols[e.target.dataset.k][e.target.matches('.volok') ? 'ok' : 'sel'] = e.target.checked;
+  if (e.target.matches('.volok, .volsel, .volprinted')) {
+    const v = printJob.vols[e.target.dataset.k], field = e.target.classList[0].slice(3);   // ok / sel / printed
+    v[field] = e.target.checked;
+    if (field === 'printed' && v.printed) v.sel = false;   // a printed book is not printed again by default
     printJob.files = null; savePrint(); renderExport();
   }
   if (e.target.matches('.ratesel')) {
@@ -1431,7 +1433,7 @@ async function printImage(src) {
 
 const savePrint = async () => put('p:' + printJob.m.id, await seal(key, {
   plan: printJob.vols.map(v => [v.a, v.b]),
-  vols: printJob.vols.map(({ img, ok, sel }) => ({ ok, sel, img: img && { url: img.url, w: img.w, h: img.h, rgb: img.rgb, from: img.from } })),
+  vols: printJob.vols.map(({ img, ok, sel, printed }) => ({ ok, sel, printed, img: img && { url: img.url, w: img.w, h: img.h, rgb: img.rgb, from: img.from } })),
 }));
 
 /* Export screen: shows the plan, collects a cover for every book, and makes the files only after approval */
@@ -1450,10 +1452,11 @@ async function showExport(id) {
     const counts = w.chapters.map((c, j) => { const L = new Layout(); L.chapter(chName(c, j), c.body); return L.pages.length; });
     const saved = await get('p:' + id).then(x => x && unseal(key, x));   // the setup from last time: covers, choices, approvals
     let plan = planVolumes(counts);
-    if (saved) {   // after an update, the earlier books stay exactly as they were; only the last one (and any new ones) change
-      const fixed = saved.plan.slice(0, -1), start = saved.plan.at(-1)[0];
-      if (start < counts.length && fixed.every(([, b]) => b < start))
-        plan = [...fixed, ...planVolumes(counts.slice(start)).map(([a, b]) => [a + start, b + start])];
+    // Books marked "printed" are locked exactly as they were (with every book before them); everything after them is split again
+    const lastPrinted = saved ? saved.vols.map(v => v.printed).lastIndexOf(true) : -1;
+    if (lastPrinted >= 0) {
+      const fixed = saved.plan.slice(0, lastPrinted + 1), start = fixed.at(-1)[1] + 1;
+      if (start <= counts.length) plan = [...fixed, ...(start < counts.length ? planVolumes(counts.slice(start)).map(([a, b]) => [a + start, b + start]) : [])];
     }
     printJob = { m, w, counts, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null, sel: true })) };
     if (saved) {
@@ -1461,7 +1464,8 @@ async function showExport(id) {
       saved.vols.forEach((sv, k) => {
         const v = printJob.vols[k];
         if (!v) return;
-        v.sel = sv.sel; v.ok = sv.ok && !printJob.changed.includes(k + 1);   // approvals stay for books that did not change
+        v.sel = sv.sel; v.printed = sv.printed && k <= lastPrinted;
+        v.ok = sv.ok && !printJob.changed.includes(k + 1);   // approvals stay for books that did not change
         if (sv.img) v.img = { ...sv.img, bytes: unb64(sv.img.url.split(',')[1]) };
       });
     }
@@ -1478,7 +1482,7 @@ function renderExport() {
     <h2 class="heading">Print with Lulu <span class="muted">(app version ${APP_VERSION})</span></h2>
     <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books of about 400 pages.` : 'Fits in one book.'}
       Your covers and choices here are saved.</p>
-    ${printJob.changed?.length ? `<p class="warn">New chapters since last time: ${printJob.changed.map(k => 'Book ' + k).join(', ')} changed. The earlier books stay exactly the same.</p>` : ''}
+    ${printJob.changed?.length ? `<p class="warn">The split changed since last time for: ${printJob.changed.map(k => 'Book ' + k).join(', ')}. Books marked as printed never change.</p>` : ''}
     ${vols.map((v, k) => { const p = volPages(v); return `<div class="vol ${v.sel ? '' : 'off'}">
       <div class="volcover">${v.img ? `<img src="${v.img.url}" alt="">` : '<div class="nocover">No cover yet</div>'}
         <button data-do="volCover" data-arg="${k}">${v.img ? 'Change cover' : 'Upload cover'}</button>
@@ -1486,6 +1490,8 @@ function renderExport() {
           v.img.from[0] < 700 ? '. Very small picture: it will look soft. A larger one is better.' : ''}</p>` : ''}</div>
       <div class="volinfo"><h3>${esc(m.title)}${v.sub ? ': ' + v.sub : ''}</h3>
         ${vols.length > 1 ? `<label class="pick"><input type="checkbox" class="volsel" data-k="${k}" ${v.sel ? 'checked' : ''}> Print this book</label>` : ''}
+        <label class="pick"><input type="checkbox" class="volprinted" data-k="${k}" ${v.printed ? 'checked' : ''}> Already printed (lock this book)</label>
+        ${v.printed ? '<p class="muted">🔒 Locked: its chapters stay exactly as printed, whatever changes later.</p>' : ''}
         <p><b>${p} pages</b> · spine ${(spineWidth(p) / PT).toFixed(2)} in</p>
         <p>Chapters ${v.a + 1}–${v.b + 1}</p>
         ${big(v) ? `<p class="warn">Longer than 450 pages${p > 500 ? ' and over 500 (a chapter is too long to split it better)' : ''}.</p>
