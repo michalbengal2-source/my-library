@@ -186,6 +186,7 @@
 
 <script>
 "use strict";
+const APP_VERSION = '1.0.1';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -1005,7 +1006,7 @@ function showSettings() {
     <h2 class="heading">Text size</h2>
     ${[['ls', 'Works list &amp; bookshelf'], ['fs', 'Reading']].map(([k, l]) =>
       `<p>${l}: <button data-do="size" data-arg="${k},-1">A−</button> <b>${size(k)}</b> <button data-do="size" data-arg="${k},1">A+</button></p>`).join('')}
-    <p class="muted">${index.length} works in your library · auto-locks after 5 minutes in the background</p>`;
+    <p class="muted">${index.length} works in your library · auto-locks after 5 minutes in the background · app version ${APP_VERSION}</p>`;
 }
 
 /* ---------- Print-ready files for Lulu (6 × 9 in paperback), made entirely on the phone ---------- */
@@ -1474,7 +1475,7 @@ function renderExport() {
   const ready = chosen.length && chosen.every(v => v.img && (!big(v) || v.ok));
   document.title = 'Print with Lulu';
   main.innerHTML = `<p><a href="#w/${m.id}/${m.last ?? 0}">← Back to the book</a></p>
-    <h2 class="heading">Print with Lulu</h2>
+    <h2 class="heading">Print with Lulu <span class="muted">(app version ${APP_VERSION})</span></h2>
     <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books of about 400 pages.` : 'Fits in one book.'}
       Your covers and choices here are saved.</p>
     ${printJob.changed?.length ? `<p class="warn">New chapters since last time: ${printJob.changed.map(k => 'Book ' + k).join(', ')} changed. The earlier books stay exactly the same.</p>` : ''}
