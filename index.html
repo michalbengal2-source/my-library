@@ -555,7 +555,6 @@ const actions = {
   },
   async makePrint() {
     const { m, w, vols } = printJob, files = [], safe = s => s.replace(/[\\/:*?"<>|]+/g, ' ').trim();
-    const sdoc = new DOMParser().parseFromString(m.summary || '', 'text/html'), paras = [...sdoc.querySelectorAll('p')].map(txt).filter(Boolean);
     const chosen = vols.filter(v => v.sel);
     for (const [k, v] of chosen.entries()) {
       $('#printmsg').textContent = `Creating book ${k + 1} of ${chosen.length}…`;
@@ -566,7 +565,7 @@ const actions = {
       const name = safe(m.title + (v.sub ? ' - ' + v.sub : ''));
       files.push({ name: `${name} - interior.pdf`, url: URL.createObjectURL(await interiorPDF(L)) },
         { name: `${name} - cover.pdf`, url: URL.createObjectURL(await coverPDF({ title: m.title + (v.sub ? ': ' + v.sub : ''), author: m.author,
-          summary: paras.length ? paras : [txt(sdoc.body)].filter(Boolean), pages: L.pages.length, img: v.img })) });
+          sub: v.sub, pages: L.pages.length, img: v.img })) });
     }
     printJob.files = files; renderExport();
   },
@@ -1327,7 +1326,12 @@ async function interiorPDF(L) {
 }
 
 /* One-piece cover: back (colour from the picture, title and summary) + spine (title · author) + front (the picture) */
-async function coverPDF({ title, author, summary, pages, img }) {
+/* Author on the spine as initials: first letter of each word, or first + last letter of a one-word name */
+function initials(author) {
+  const words = author.split(/[\s_\-.,]+/).filter(Boolean);
+  return (words.length > 1 ? words.map(w => [...w][0]).join('') : [...(words[0] || '')].filter((c, i, a) => i === 0 || i === a.length - 1).join('')).toUpperCase();
+}
+async function coverPDF({ title, author, sub, pages, img }) {
   const F = fontsFor(), spine = spineWidth(pages), W = 2 * TRIM_W + spine + 2 * BLEED, H = PAGE_H;
   const [r, g, b] = img.rgb.map(v => v / 255 * 0.8), ink = 0.3 * r + 0.59 * g + 0.11 * b > 0.55 ? '0 0 0' : '1 1 1';
   const ops = [`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg 0 0 ${W.toFixed(2)} ${H} re f`];
@@ -1336,24 +1340,12 @@ async function coverPDF({ title, author, summary, pages, img }) {
   const text = (f, size, x, y, str, m = '1 0 0 1') => ops.push(`BT ${m} ${x.toFixed(2)} ${y.toFixed(2)} Tm ${segments(f, str).filter(g => g.font)
     .map(g => `/F${F.indexOf(g.font)} ${size.toFixed(2)} Tf <${g.font.hex(g.t)}> Tj`).join(' ')} ET`);   // (emoji are left off the cover)
   if (spine >= 0.25 * PT) {   // spine text reads top to bottom
-    const label = `${title}   ·   ${author}`, max = H - 1.5 * PT;
+    const label = `${title}   ·   ${initials(author)}`, max = H - 1.5 * PT;
     let size = Math.min(spine * 0.42, 12);
     if (textWidth(F[0], size, label) > max) size *= max / textWidth(F[0], size, label);
     text(F[0], size, BLEED + TRIM_W + spine / 2 - size * 0.33, (H + textWidth(F[0], size, label)) / 2, label, '0 -1 1 0');
   }
-  const bx = BLEED + 0.625 * PT, bw = TRIM_W - 1.25 * PT;
-  let by = H - BLEED - 1.1 * PT;
-  const wrap = (str, f, size, lead) => {
-    let line = '';
-    for (const word of str.split(/\s+/).filter(Boolean)) {
-      if (line && textWidth(f, size, line + ' ' + word) > bw) { if (by > BLEED + PT) text(f, size, bx, by, line); by -= lead; line = word; }
-      else line = line ? line + ' ' + word : word;
-    }
-    if (line && by > BLEED + PT) text(f, size, bx, by, line);
-    by -= lead;
-  };
-  wrap(title, F[2], 16, 21); by -= 10;
-  for (const para of summary) { wrap(para, F[0], 11, 15); by -= 5; }
+  if (sub) text(F[0], 20, BLEED + (TRIM_W - textWidth(F[0], 20, sub)) / 2, H / 2, sub);   // back cover: only "Book N", centred; one-book works stay blank
   return new PDFDoc().document([{ w: W, h: H, ops, trim: `${BLEED} ${BLEED} ${W - BLEED} ${H - BLEED}` }], async doc => `/XObject << /Im0 ${doc.add(
     `<< /Type /XObject /Subtype /Image /Width ${img.w} /Height ${img.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${img.bytes.length} >>`,
     img.bytes)} 0 R >>`);
