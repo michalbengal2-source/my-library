@@ -39,23 +39,16 @@
   .tabs button.on { color:#fff; font-weight:bold; border-bottom-color:#fff; }
   main { max-width:900px; margin:0 auto; padding:12px; }
 
-  #out, .toolbar, .picks { font-size:var(--ls); }
   .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
-  .picks { display:grid; gap:8px; margin:10px 0 12px; }
   .toolbar .fill { flex:1; }
   .menu { font-size:1.3rem; padding:.1em .6em; }
   .drawer { position:fixed; top:0; right:0; bottom:0; width:min(88vw, 360px); background:#fff; z-index:20; overflow-y:auto;
             padding:12px; box-shadow:-4px 0 14px #0003; transform:translateX(105%); transition:transform .25s; font-size:var(--ls); }
   .drawer.open { transform:none; }
-  .drawer select, .drawer #fbtn { width:100%; margin-top:8px; }
   .dhead { display:flex; justify-content:space-between; align-items:center; font:1.2em var(--serif); }
   #scrim { position:fixed; inset:0; background:#0005; z-index:19; display:none; }
   .drawer.open + #scrim { display:block; }
-  .picks select { width:100%; min-width:0; }
-  .chars { font-size:var(--ls); border:1px solid var(--line); border-radius:4px; padding:6px 10px; margin-bottom:12px; }
-  .chars summary { cursor:pointer; font-weight:bold; }
-  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
-  .chip { border-radius:14px; padding:3px 10px; background:#f4f4f4; }
+  .chip { border-radius:14px; padding:3px 10px; background:#f4f4f4; font-size:.9em; }
   .chip small { color:#888; }
   .chip.inc { background:#3c8d40; border-color:#3c8d40; color:#fff; }
   .chip.exc { background:#b3261e; border-color:#b3261e; color:#fff; }
@@ -88,7 +81,11 @@
   .filters summary { padding:5px 0; border-bottom:1px dotted #999; cursor:pointer; }
   .filters label { display:block; padding:4px 0 4px 4px; }
   .filters input { margin:0 6px 0 0; vertical-align:-2px; }
-  #out .tag { cursor:pointer; }
+  #out, #act, .toolbar { font-size:var(--ls); }
+  .tag[data-k] { cursor:pointer; }
+  .active { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+  .filters .tagsearch { width:100%; margin:6px 0; padding:6px; border:1px solid #bbb; border-radius:4px; }
+  .filters label[hidden] { display:none; }
   .blurb .series { margin:8px 0 0; }
   .blurb .new { margin:8px 0 0; color:var(--red); font-weight:bold; }
   .upnext { text-align:center; margin:2em 0 0; }
@@ -710,7 +707,7 @@ const seriesBar = m => sequencesOf(m).map(({ name, href, works }) => {
 
 function blurb(m, extra = '') {
   const tag = (gi, t) => `<span class="tag" data-k="${esc(gi + '|' + t)}">${esc(t)}</span>`;
-  const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi === 5 || gi === 6 ? (t.includes('/') ? 9 : 10) : gi, t)}</li>`).join('');
+  const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi, t)}</li>`).join('');
   const lang = tagsOf(m, /^language/i).join(', ');
   return `<li class="blurb">
     <div class="hd">${m.kind === 'book' ? '' : required(m)}
@@ -742,16 +739,13 @@ const SORTS = {
   mine: ['My Rating', m => m.rating || 0],
 };
 const authorsOf = m => m.author.split(/,\s+|\s+and\s+/).filter(Boolean);
-const GROUPS = [['Ratings', /^rating/i], ['Warnings', /^archive warning/i], ['Categories', /^categor/i], ['Fandoms', /^fandom/i],
-  ['Characters', /^character/i], ['Relationships', /^relationship/i], ['Additional Tags', /^additional/i]]
-  .map(([g, re]) => [g, m => tagsOf(m, re)]).concat([['Authors', authorsOf], ['Collections', m => groups.filter(g => g.ids.includes(m.id)).map(g => g.name)],
-    // quick lists only: a tag with "/" anywhere in it is a relationship, everything else is a regular tag
-    ['Relationships', m => freeTags(m).filter(t => t.includes('/'))], ['Tags', m => freeTags(m).filter(t => !t.includes('/'))]]);
-const freeTags = m => [...tagsOf(m, /^relationship/i), ...tagsOf(m, /^additional/i)];
-const PANEL_GROUPS = 9;   // the Filters panel shows AO3's own groups (0-8), not the two quick-list groups
+const LABELS = [/^rating/i, /^archive warning/i, /^categor/i, /^fandom/i, /^character/i, /^relationship/i, /^additional/i];
+const GROUPS = ['Ratings', 'Warnings', 'Categories', 'Fandoms', 'Characters', 'Relationships', 'Additional Tags']
+  .map((g, i) => [g, m => tagsOf(m, LABELS[i])]).concat([['Authors', authorsOf], ['Collections', m => groups.filter(g => g.ids.includes(m.id)).map(g => g.name)]]);
+const groupOfLabel = l => LABELS.findIndex(re => re.test(l));
 const filters = { inc: new Set(), exc: new Set() }, openG = new Set();   // kept in memory only, never saved unencrypted
-let panelOpen = false;
 const hasTag = (m, k) => { const i = k.indexOf('|'); return GROUPS[k.slice(0, i)][1](m).includes(k.slice(i + 1)); };
+const tagName = k => k.slice(k.indexOf('|') + 1);
 
 let shelfKind = '';   // bookshelf: '' = everything, 'book', 'fic'
 const inView = m => location.hash === '#shelf' ? !shelfKind || (shelfKind === 'book') === (m.kind === 'book') : m.kind !== 'book';
@@ -761,104 +755,84 @@ const countsOf = get => {   // [tag, number of works], most common first
   return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 };
 
-/* Quick pick lists above the results: title, fandom, author, tag (they share state with the Filters panel) */
-const PICKS = [['fandoms', [3]], ['authors', [7]], ['relationships', [9]], ['tags', [10]], ['collections', [8]]];
-let titleId = '';
-function picks() {
-  const opt = (v, label, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(label)}</option>`;
-  return `<select data-pick="title">${opt('', 'All titles')}${index.filter(m => inView(m) && m.kind !== 'book').sort((a, b) => a.title.localeCompare(b.title))
-      .map(m => opt(m.id, m.title, m.id === titleId)).join('')}</select>` +
-    PICKS.map(([l, gs], pi) => `<select data-pick="${pi}">${opt('', 'All ' + l)}${gs.map(gi => `<optgroup label="${GROUPS[gi][0]}">${
-      countsOf(GROUPS[gi][1]).map(([t, n]) => opt(gi + '|' + t, `${t} (${n})`, filters.inc.has(gi + '|' + t))).join('')}</optgroup>`).join('')}</select>`).join('');
-}
-
+/* The side menu: Show (bookshelf), Sort by, Include, Exclude — all as AO3-style folding lists */
 function filterPanel() {
-  return '<button id="fclear">Clear Filters</button>' + [['inc', 'Include'], ['exc', 'Exclude']].map(([mode, title]) => `<h3>${title}</h3>` +
-    GROUPS.slice(0, PANEL_GROUPS).map(([g, get], gi) => {
-      const list = countsOf(get);
-      return list.length ? `<details data-g="${mode + gi}" ${openG.has(mode + gi) ? 'open' : ''}><summary>${g}</summary>${list.map(([t, n]) =>
-        `<label><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')}</details>` : '';
-    }).join('')).join('');
+  const section = (id, title, body) => `<details data-g="${id}" ${openG.has(id) ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
+  const radio = (name, v, label, on) => `<label><input type="radio" name="${name}" value="${v}" ${on ? 'checked' : ''}>${esc(label)}</label>`;
+  const booksOnly = location.hash === '#shelf' && shelfKind === 'book';
+  return (location.hash === '#shelf' ? section('show', 'Show', [['', 'Books & fanfics'], ['book', 'Books'], ['fic', 'Fanfics']]
+      .map(([v, l]) => radio('kind', v, l, v === shelfKind)).join('')) : '') +
+    (booksOnly ? '' : section('sort', 'Sort by', Object.entries(SORTS).map(([k, [l]]) => radio('sort', k, l, k === (pref('sort') || 'updated'))).join('')) +
+      (filters.inc.size + filters.exc.size ? '<p><button id="fclear">Clear Filters</button></p>' : '') +
+      [['inc', 'Include'], ['exc', 'Exclude']].map(([mode, title]) => `<h3>${title}</h3>` + GROUPS.map(([g, get], gi) => {
+        const list = countsOf(get);
+        return list.length ? section(mode + gi, g, (gi === 6 ? '<input type="search" class="tagsearch" placeholder="Type a tag…">' : '') + list.map(([t, n]) =>
+          `<label><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')) : '';
+      }).join('')).join(''));
 }
 
 function filtered() {
   const [, val, asc] = SORTS[pref('sort')] || SORTS.updated, here = index.filter(inView);
-  return here.filter(m => m.kind !== 'book' && (!titleId || m.id === titleId)
-      && [...filters.inc].every(k => hasTag(m, k)) && ![...filters.exc].some(k => hasTag(m, k)))
+  return here.filter(m => m.kind !== 'book' && [...filters.inc].every(k => hasTag(m, k)) && ![...filters.exc].some(k => hasTag(m, k)))
     .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1))
     .concat(here.filter(m => m.kind === 'book'));   // books are never filtered or sorted: they stay in the order added
 }
 
-/* Characters: one tap = must be in the work (green), second tap = must not be (red), third tap = clear */
-let charsOpen = false;
-const chips = () => countsOf(GROUPS[4][1]).map(([t, n]) => {
-  const k = '4|' + t;
-  return `<button class="chip ${filters.inc.has(k) ? 'inc' : filters.exc.has(k) ? 'exc' : ''}" data-k="${esc(k)}">${esc(t)} <small>${n}</small></button>`;
-}).join('') || '<span class="muted">No characters yet</span>';
+/* Active filters shown above the results; tap one to remove it */
+const activeFilters = () => filters.inc.size + filters.exc.size ? `<p class="active">${[...filters.inc].map(k => `<button class="chip inc" data-unf="${esc(k)}">✓ ${esc(tagName(k))}</button>`).join('')}${
+  [...filters.exc].map(k => `<button class="chip exc" data-unf="${esc(k)}">✕ ${esc(tagName(k))}</button>`).join('')}<button class="chip" id="unall">Clear all</button></p>` : '';
+
 function toolbar(draw) {
   main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add</button><span class="fill"></span>
       <button id="menu" class="menu" aria-label="Sort and filter">☰</button></div>
-    <aside id="drawer" class="drawer">
-    <div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>
-    ${location.hash === '#shelf' ? `<select id="kind">${[['', 'Books & fanfics'], ['book', 'Books'], ['fic', 'Fanfics']]
-      .map(([v, l]) => `<option value="${v}" ${v === shelfKind ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
-    <select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === (pref('sort') || 'updated') ? 'selected' : ''}>Sort by ${l}</option>`).join('')}</select>
-    <div id="picks" class="picks"></div>
-    <details id="chars" class="chars" ${charsOpen ? 'open' : ''}><summary></summary><div class="chips"></div></details>
-    <button id="fbtn"></button>
-    <div id="filters" class="filters" ${panelOpen ? '' : 'hidden'}></div>
-    </aside><div id="scrim"></div><div id="out"></div>`;
+    <aside id="drawer" class="drawer"><div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>
+      <div id="filters" class="filters"></div></aside><div id="scrim"></div><div id="act"></div><div id="out"></div>`;
   // side menu: closed until ☰ is tapped; ✕ or tapping outside closes it
-  const drawer = $('#drawer'), toggleDrawer = open => drawer.classList.toggle('open', open);
+  const drawer = $('#drawer'), panel = $('#filters'), toggleDrawer = open => drawer.classList.toggle('open', open);
   $('#menu').onclick = () => toggleDrawer(true);
   $('#dclose').onclick = $('#scrim').onclick = () => toggleDrawer(false);
-  const panel = $('#filters');
-  // only books on the shelf: filters and sorting don't apply to books, so they are hidden
-  if (location.hash === '#shelf' && shelfKind === 'book') ['#sort', '#fbtn', '#picks', '#chars'].forEach(x => $(x).hidden = true);
-  const redraw = (rebuild) => {
-    const n = filters.inc.size + filters.exc.size + !!titleId;
-    $('#fbtn').textContent = 'Include / Exclude' + (n ? ` (${n} active)` : '');
+  const redraw = rebuild => {
+    const n = filters.inc.size + filters.exc.size;
     $('#menu').textContent = '☰' + (n ? ` ${n}` : '');
-    if (rebuild) {
-      panel.innerHTML = filterPanel(); $('#picks').innerHTML = picks(); $('#chars .chips').innerHTML = chips();
-      const sel = [...filters.inc, ...filters.exc].filter(k => k.startsWith('4|')).length;
-      $('#chars summary').textContent = 'Characters' + (sel ? ` (${sel} selected)` : '');
-    }
+    $('#act').innerHTML = activeFilters();
+    if (rebuild) { const y = drawer.scrollTop; panel.innerHTML = filterPanel(); drawer.scrollTop = y; }
     draw();
   };
-  $('#picks').onchange = e => {
-    const p = e.target.dataset.pick, v = e.target.value;
-    if (p === 'title') titleId = v;
-    else {
-      PICKS[p][1].forEach(gi => [...filters.inc].forEach(k => k.startsWith(gi + '|') && filters.inc.delete(k)));
-      if (v) { filters.inc.add(v); filters.exc.delete(v); }
-    }
-    redraw(true);
-  };
-  $('#sort').onchange = () => { pref('sort', $('#sort').value); draw(); };
-  if ($('#kind')) $('#kind').onchange = () => { shelfKind = $('#kind').value; route(); };
-  $('#chars').ontoggle = e => { charsOpen = e.target.open; };
-  $('#chars .chips').onclick = e => {
-    const k = e.target.closest('.chip')?.dataset.k;
-    if (!k) return;
-    if (filters.inc.has(k)) { filters.inc.delete(k); filters.exc.add(k); }
-    else if (filters.exc.has(k)) filters.exc.delete(k);
-    else filters.inc.add(k);
-    redraw(true);
-  };
-  $('#fbtn').onclick = () => { panel.hidden = !(panelOpen = !panelOpen); };
   panel.addEventListener('toggle', e => openG[e.target.open ? 'add' : 'delete'](e.target.dataset.g), true);
-  panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); titleId = ''; redraw(true); } };
+  panel.oninput = e => {   // Additional Tags search: shows only the tags that contain what was typed
+    if (!e.target.matches('.tagsearch')) return;
+    const q = e.target.value.toLowerCase();
+    e.target.parentNode.querySelectorAll('label').forEach(l => l.hidden = !l.textContent.toLowerCase().includes(q));
+  };
+  panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); redraw(true); } };
   panel.onchange = e => {
-    const { f } = e.target.dataset, k = e.target.value, other = f === 'inc' ? 'exc' : 'inc';
-    if (!e.target.checked) return filters[f].delete(k), redraw();
+    const t = e.target;
+    if (t.name === 'kind') { shelfKind = t.value; return route(); }
+    if (t.name === 'sort') { pref('sort', t.value); return draw(); }
+    const { f } = t.dataset, k = t.value, other = f === 'inc' ? 'exc' : 'inc';
+    if (!f) return;
+    if (!t.checked) { filters[f].delete(k); return redraw(); }
     filters[f].add(k); filters[other].delete(k);
     if (f === 'inc' && k.startsWith('0|')) [...filters.inc].forEach(x => x !== k && x.startsWith('0|') && filters.inc.delete(x));  // one rating at a time, like AO3
     redraw(true);
   };
-  $('#out').onclick = e => { const { k } = e.target.dataset; if (k) { filters.inc.add(k); filters.exc.delete(k); redraw(true); } };
+  $('#act').onclick = e => {
+    const k = e.target.dataset.unf;
+    if (e.target.id === 'unall') { filters.inc.clear(); filters.exc.clear(); }
+    else if (k) { filters.inc.delete(k); filters.exc.delete(k); }
+    else return;
+    redraw(true);
+  };
   redraw(true);
 }
+
+/* Tapping a tag anywhere (work card or work details) shows only the works with that tag */
+main.addEventListener('click', e => {
+  const k = e.target.closest('.tag[data-k]')?.dataset.k;
+  if (!k) return;
+  filters.inc.clear(); filters.exc.clear(); filters.inc.add(k);
+  location.hash === '' ? route() : location.hash = '';
+});
 
 function showList() {
   document.title = 'My Library';
@@ -922,7 +896,7 @@ async function showWork(id, ch) {
   const btn = (j, label) => `<li><a class="btn" href="#w/${id}/${j}">${label}</a></li>`;
   const dd = (l, v) => /^stats/i.test(l)
     ? v.join(' ').replace(/(\S+:)\s*(\S+)/g, (_, a, b) => `<span class="st">${esc(a)} ${esc(b)}</span>`)
-    : v.map(t => `<span class="tag">${esc(t)}</span>`).join(', ');
+    : v.map(t => `<span class="tag" ${groupOfLabel(l) >= 0 ? `data-k="${esc(groupOfLabel(l) + '|' + t)}"` : ''}>${esc(t)}</span>`).join(', ');
   const warn = l => /warning/i.test(l) ? 'warning' : '';
 
   main.innerHTML = `
