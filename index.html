@@ -1,0 +1,1512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<!-- Blocks every outgoing connection except to this app's own address (used only to load the print fonts): no data can reach any other server -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'">
+<meta name="theme-color" content="#990000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>My Library</title>
+<style>
+  /* Fonts, sizes and colours follow AO3's own stylesheet */
+  :root { --red:#900; --ink:#2a2a2a; --muted:#777; --line:#ddd; --fs:12px; --ls:12px;
+          --sans:"Lucida Grande","Lucida Sans Unicode","GNU Unifont",Verdana,Helvetica,sans-serif; --serif:Georgia,serif; }
+  * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
+  html { font-size:12px; }   /* default text size for the whole app */
+  body { margin:0; background:#fff; color:var(--ink); font: 1rem/1.5 var(--sans); }
+  a { color:var(--red); }
+  button, select, input { font:inherit; color:#444; }
+  button, select, .btn { background: linear-gradient(#fff 2%, #ddd 95%, #bbb 100%); border:1px solid #bbb; border-bottom-color:#aaa;
+           border-radius:.25em; padding:.3em .75em; cursor:pointer; text-decoration:none; display:inline-block; color:#444; }
+  input[type=search] { padding:6px; border:1px solid #bbb; border-radius:.25em; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .center { text-align:center; padding:40px 10px; }
+  .center button { display:block; margin:12px auto; min-width:220px; }
+
+  header { display:none; position:sticky; top:0; z-index:5; background:var(--red); color:#fff; padding:8px 12px 0; flex-wrap:wrap; align-items:center; }
+  body.open header { display:flex; }
+  header .brand { color:#fff; font:bold 1.35rem var(--serif); text-decoration:none; flex:1; }
+  header .icon { background:none; border:0; color:#fff; font-size:1.6rem; padding:0 8px; }
+  header { transition: transform .25s; }
+  body.hide-bar header { transform: translateY(-100%); }   /* bar slides away while scrolling down a chapter */
+  body.full header { display:none !important; }            /* full screen: no bar at all */
+  .tabs { flex-basis:100%; display:flex; margin-top:6px; }
+  .tabs button { flex:1; background:none; border:0; border-radius:0; color:#ffffffb0; padding:8px 0; border-bottom:3px solid transparent; }
+  .tabs button.on { color:#fff; font-weight:bold; border-bottom-color:#fff; }
+  .tabs .hbtn { flex:none; color:#fff; padding:8px 10px; white-space:nowrap; }
+  .tabs #menu { font-size:1.25rem; padding:4px 10px; }
+  .tabs #menu[hidden] { display:inline-block !important; visibility:hidden; }   /* keeps the tabs in place */
+  main { max-width:900px; margin:0 auto; padding:12px; }
+
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .toolbar .fill { flex:1; }
+  .menu { font-size:1.3rem; padding:.1em .6em; }
+  .drawer { position:fixed; top:0; right:0; bottom:0; width:min(88vw, 360px); background:#fff; z-index:20; overflow-y:auto;
+            padding:12px; box-shadow:-4px 0 14px #0003; transform:translateX(105%); transition:transform .25s; font-size:var(--ls); }
+  .drawer.open { transform:none; }
+  .dhead { display:flex; justify-content:space-between; align-items:center; font:1.2em var(--serif); }
+  #scrim { position:fixed; inset:0; background:#0005; z-index:19; display:none; }
+  .drawer.open + #scrim { display:block; }
+  .chip { border-radius:14px; padding:3px 10px; background:#f4f4f4; font-size:.9em; }
+  .chip small { color:#888; }
+  .chip.inc { background:#3c8d40; border-color:#3c8d40; color:#fff; }
+  .chip.exc { background:#b3261e; border-color:#b3261e; color:#fff; }
+  .chip.inc small, .chip.exc small { color:#ffffffb0; }
+  h2.heading { font:normal 1.3em var(--serif); margin:6px 0 12px; }
+  .tag { color:var(--ink); border-bottom:1px dotted; }
+
+  /* AO3 work blurb (list) */
+  ol.works { list-style:none; padding:0; margin:0; }
+  .blurb { border:1px solid var(--line); box-shadow:1px 1px 3px #0001; padding:12px 14px; margin-bottom:14px; overflow:hidden; }
+  .blurb .hd { display:flex; gap:10px; align-items:flex-start; }
+  .req { display:grid; grid-template-columns:repeat(2, 2.2em); gap:3px; flex:none; }
+  .sq { aspect-ratio:1; display:grid; place-items:center; color:#fff; font:bold 1.45em/1 var(--serif); border:1px solid #0002; }
+  .ttl { flex:1; min-width:0; }
+  .ttl h4 { margin:0; font:normal 1.2em var(--serif); }
+  .ttl h5 { margin:4px 0 0; font:normal 1em var(--serif); }
+  .date { flex:none; margin:0; font:.8em monospace; color:var(--muted); }
+  ul.tags { list-style:none; padding:0; margin:10px 0 0; line-height:1.75; }
+  ul.tags li { display:inline; }
+  ul.tags li:not(:last-child)::after { content:", "; }
+  ul.tags .warnings .tag { font-weight:bold; border:0; }
+  blockquote.summary { margin:10px 0 0; }
+  dl.stats { text-align:right; margin:10px 0 0; font-size:.9em; }
+  dl.stats dt, dl.stats dd { display:inline; margin:0; }
+  dl.stats dd { margin-inline-end:12px; }
+
+  /* AO3-style Sort and Filter panel */
+  .filters { background:#ddd; border-radius:4px; padding:8px 12px; margin-bottom:12px; font-size:var(--ls); }
+  .filters h3 { font:bold 1.15em var(--serif); margin:.6em 0 .2em; }
+  .filters summary { padding:5px 0; border-bottom:1px dotted #999; cursor:pointer; }
+  .filters label { display:block; padding:4px 0 4px 4px; }
+  .filters input { margin:0 6px 0 0; vertical-align:-2px; }
+  #out, #act, .toolbar { font-size:var(--ls); }
+  .tag[data-k] { cursor:pointer; }
+  .active { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+  .filters .tagsearch { width:100%; margin:6px 0; padding:6px; border:1px solid #bbb; border-radius:4px; }
+  .filters label[hidden] { display:none; }
+  .blurb .series { margin:8px 0 0; }
+  .blurb .new { margin:8px 0 0; color:var(--red); font-weight:bold; }
+  .upnext { text-align:center; margin:2em 0 0; }
+  .vol { display:flex; gap:12px; border:1px solid var(--line); padding:10px; margin-bottom:12px; font-size:var(--ls); }
+  .volcover { width:120px; flex:none; text-align:center; }
+  .volcover img, .nocover { width:120px; aspect-ratio:2/3; object-fit:cover; margin-bottom:6px; box-shadow:0 1px 4px #0004; }
+  .volcover img { display:block; }
+  .nocover { display:grid; place-items:center; background:#eee; color:#888; }
+  .warn { color:#b3261e; font-size:.85em; }
+  .volinfo h3 { margin:0 0 4px; font:1.15em var(--serif); }
+  .volinfo p { margin:4px 0; }
+  .vol.off { opacity:.55; }
+  .pick { display:block; font-weight:bold; margin:4px 0; }
+  button.primary { background:var(--red); color:#fff; border-color:var(--red); padding:.5em 1.2em; }
+  button:disabled { opacity:.5; }
+  .steps li { margin:4px 0; }
+  .upnext .btn { margin:4px 0; }
+  .seqbar { display:flex; justify-content:space-between; align-items:center; gap:8px; border:1px solid var(--line); background:#f6f6f6;
+            padding:6px 10px; margin:0 0 8px; font-size:.95em; }
+  .seqbar > * { flex:1; } .seqbar > span { text-align:center; } .seqbar > a:last-child { text-align:right; }
+  ul.groups { list-style:none; padding:0; margin:0; font-size:var(--ls); }
+  ul.groups li { display:flex; justify-content:space-between; align-items:baseline; border:1px solid var(--line); box-shadow:1px 1px 3px #0001; padding:12px 14px; margin-bottom:10px; }
+  ul.groups a { font:1.25em var(--serif); }
+  .gctl { display:flex; gap:6px; align-items:center; margin-top:10px; padding-top:8px; border-top:1px dotted #bbb; }
+  .gctl span { flex:1; }
+  .upnext select { max-width:70vw; margin-top:8px; font-size:1rem; }
+
+  /* Bookshelf */
+  .shelf { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+  .book img { display:block; width:100%; aspect-ratio:2/3; object-fit:cover; border-radius:3px; box-shadow:0 1px 4px #0004; background:#eee; }
+
+  /* AO3 chapter page */
+  ul.actions { list-style:none; padding:0; margin:6px 0 10px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  ul.actions select { max-width:46vw; }
+  ul.tools { gap:4px; margin-top:-2px; }
+  ul.tools button, ul.tools .btn, ul.tools select { font-size:.9rem; padding:.15em .6em; }
+  .wrapper { border:1px solid var(--line); box-shadow:1px 1px 5px #aaa; padding:.6em 1em; margin:.6em 0 1.5em; }
+  dl.meta { margin:0; }
+  dl.meta dt { margin-top:.6em; }
+  dl.meta dt.warning, dl.meta dd.warning .tag { font-weight:bold; }
+  dl.meta dd { margin:0 0 0 1.5em; }
+  dl.meta .st { margin-right:1.2em; white-space:nowrap; display:inline-block; }
+  .work { font-size:var(--fs); }
+  .preface { text-align:center; margin:2em 0 0; }
+  .preface h2.title { font:normal 2.25em/1.1 var(--serif); margin:0 0 .5em; }
+  .preface h3.byline { font:normal 1.3em var(--serif); margin:0 0 1em; }
+  .preface .cover-big { display:block; max-width:200px; margin:0 auto 1.2em; box-shadow:3px 3px 8px #0005; border-radius:3px; }
+  hr.line { border:0; border-top:1px solid #333; width:75%; margin:0 auto 1.5em; }
+  .module { margin:0 auto 1.5em; width:80%; text-align:left; }
+  h3.heading { font:normal 1.45em var(--serif); border-bottom:1px solid #333; margin:.6em 0 .4em; }
+  .module blockquote { margin:0 0 0 1.2em; }
+  .chapter h3.title { text-align:center; font:normal 1.45em var(--serif); margin:.4em 0 1em; }
+  .chapter h3.title span { border-bottom:1px solid #333; }
+  .userstuff { line-height:1.5; margin:2em 0; }
+  .userstuff p { margin:1.286em auto; }
+  .work p, .work li, .work blockquote { unicode-bidi: plaintext; text-align: start; }
+
+  dialog { border:0; border-radius:10px; padding:20px; width:min(92vw, 360px); }
+  dialog::backdrop { background:var(--red); }
+  dialog input { width:100%; font-size:1.3rem; padding:8px; margin:8px 0; }
+  dialog menu { display:flex; gap:8px; padding:0; margin:8px 0 0; }
+  #dlg-err { color:#d33; min-height:1em; margin:0; }
+  #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 18px; border-radius:20px; z-index:9; }
+
+  /* Reading position: thin light-gray marker on the right edge, never catches taps */
+  #pos { position:fixed; right:2px; top:0; width:3px; border-radius:2px; background:#d0d0d0; pointer-events:none; z-index:4; display:none; }
+
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="#">My Library</a>
+  <button class="icon" data-do="go" data-arg="settings" aria-label="Settings">⚙</button>
+  <button class="icon" data-do="lock" aria-label="Lock">🔒</button>
+  <nav class="tabs">
+    <button class="hbtn" data-do="add">+ Add</button>
+    <button data-do="go" data-arg="" data-tab="">Works</button>
+    <button data-do="go" data-arg="shelf" data-tab="shelf">Bookshelf</button>
+    <button data-do="go" data-arg="groups" data-tab="groups">Collections</button>
+    <button class="hbtn" id="menu" aria-label="Sort and filter">☰</button>
+  </nav>
+</header>
+<main id="main"></main>
+<input type="file" id="pick" hidden>
+<div id="toast" hidden></div>
+<div id="pos"></div>
+<dialog id="dlg">
+  <form method="dialog">
+    <p id="dlg-msg"></p>
+    <input id="dlg-pw" type="password" autocomplete="current-password">
+    <p id="dlg-err"></p>
+    <menu><button value="ok">OK</button><button value="" id="dlg-cancel">Cancel</button></menu>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+const APP_VERSION = '1.0.1';   // shown in Settings and on the print screen, to check which version is running
+const $ = (s, r = document) => r.querySelector(s);
+const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
+let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
+
+/* ---------- Local storage (IndexedDB) ---------- */
+const dbp = new Promise((ok, no) => {
+  const r = indexedDB.open('my-library', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+});
+async function store(mode, fn) {
+  const t = (await dbp).transaction('kv', mode), req = fn(t.objectStore('kv'));
+  return new Promise((ok, no) => { t.oncomplete = () => ok(req.result); t.onerror = () => no(t.error); });
+}
+const get = k => store('readonly', s => s.get(k));
+const put = (k, v) => store('readwrite', s => s.put(v, k));
+const del = k => store('readwrite', s => s.delete(k));
+async function entries() {
+  const [keys, vals] = await Promise.all([store('readonly', s => s.getAllKeys()), store('readonly', s => s.getAll())]);
+  return Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+}
+
+/* ---------- Encryption: AES-GCM, key derived from the password ---------- */
+async function deriveKey(pw, salt) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function seal(k, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, enc.encode(JSON.stringify(obj))));
+  const out = new Uint8Array(12 + data.length); out.set(iv); out.set(data, 12); return out;
+}
+async function unseal(k, u) {
+  return JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12))));
+}
+const saveIndex = async () => put('index', await seal(key, index));
+const saveGroups = async () => put('groups', await seal(key, groups));   // collections, encrypted like everything else
+const groupById = id => groups.find(g => g.id === id);
+const getCover = async id => covers[id] ??= await unseal(key, await get('c:' + id));
+
+/* ---------- Small helpers ---------- */
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const txt = el => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+const b64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const chName = (c, i) => c.title || 'Chapter ' + (i + 1);
+const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+const pref = (k, v) => { try { return v === undefined ? localStorage[k] : (localStorage[k] = v); } catch {} };
+function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 3500); }
+
+function askPassword(msg, cancelable = true, err = '') {
+  const d = $('#dlg');
+  $('#dlg-msg').textContent = msg; $('#dlg-err').textContent = err;
+  $('#dlg-pw').value = ''; $('#dlg-cancel').hidden = !cancelable; d.returnValue = '';
+  d.oncancel = e => cancelable || e.preventDefault();
+  d.showModal();
+  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : null));
+}
+function pickFiles(accept, multiple = false) {
+  const p = $('#pick'); Object.assign(p, { accept, multiple, value: '' });
+  return new Promise(ok => { p.onchange = () => ok([...p.files]); p.click(); });
+}
+function readBackup(text) {
+  try {
+    const o = JSON.parse(text);
+    return o.app === 'my-library' ? Object.fromEntries(Object.entries(o.data).map(([k, v]) => [k, unb64(v)])) : null;
+  } catch { return null; }
+}
+
+/* ---------- Parsing an AO3 HTML download ---------- */
+function clean(doc) {   // removes anything active (scripts, event handlers), keeps text and formatting
+  doc.querySelectorAll('script,style,link,iframe,object,embed,form,meta,p.message').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(el => [...el.attributes].forEach(a => {
+    if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+  }));
+  return doc;
+}
+function parseWork(html) {
+  const doc = clean(new DOMParser().parseFromString(html, 'text/html'));
+  const pre = doc.querySelector('#preface') || doc.createElement('div');
+  const after = doc.querySelector('#afterword');
+  const block = label => [...pre.querySelectorAll('p')].find(p => txt(p) === label)?.nextElementSibling?.innerHTML.trim() || '';
+  const tags = [...pre.querySelectorAll('dl.tags dt')].map(dt =>
+    [txt(dt).replace(/:$/, ''), txt(dt.nextElementSibling).split(/,\s+/).filter(Boolean)]);
+  const stats = tags.find(([l]) => /^stats/i.test(l))?.[1].join(' ') || '';
+  const chapters = splitChapters(doc.querySelector('#chapters') || doc.body);
+  return {
+    meta: {
+      title: txt(pre.querySelector('h1')) || txt(doc.querySelector('title')) || 'Untitled',
+      author: txt(pre.querySelector('.byline')).replace(/^by\s+/i, ''),
+      tags, summary: block('Summary'),
+      words: stats.match(/Words:\s*([\d,]+)/)?.[1] || '?',
+      chapters: stats.match(/Chapters:\s*(\S+)/)?.[1] || chapters.length,
+      date: [...stats.matchAll(/(\d{4}-\d\d-\d\d)/g)].pop()?.[1] || '',
+      last: null,
+    },
+    work: { notes: block('Notes'), after: txt(after) ? after.innerHTML.trim() : '', chapters },
+  };
+}
+function splitChapters(box) {
+  const out = []; let cur;
+  for (const el of box.children) {
+    const head = el.matches('div.meta') && el.querySelector('h2.heading');
+    if (head) { head.remove(); out.push(cur = { title: txt(head), notes: el.innerHTML.trim(), body: '', end: '' }); }
+    else if (cur) cur[el.matches('.meta, .endnotes') ? 'end' : 'body'] += el.outerHTML;
+  }
+  return out.length ? out : [{ title: '', notes: '', body: box.innerHTML, end: '' }];
+}
+
+/* ---------- Reading an EPUB book (a zip file) without any outside library ---------- */
+async function unzip(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer()), dv = new DataView(buf.buffer), files = {};
+  let e = buf.length - 22;
+  while (e > 0 && dv.getUint32(e, true) !== 0x06054b50) e--;   // end of the zip's table of contents
+  for (let n = dv.getUint16(e + 10, true), p = dv.getUint32(e + 16, true); n--;) {
+    const method = dv.getUint16(p + 10, true), size = dv.getUint32(p + 20, true), len = dv.getUint16(p + 28, true),
+          local = dv.getUint32(p + 42, true), start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true),
+          data = buf.subarray(start, start + size);
+    files[dec.decode(buf.subarray(p + 46, p + 46 + len))] = async () => method
+      ? new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer())
+      : data;
+    p += 46 + len + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  return files;
+}
+const resolvePath = (base, href) => decodeURIComponent(new URL(href, 'http://x/' + base).pathname.slice(1));
+const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp' };
+
+async function parseEpub(blob) {
+  const zip = await unzip(blob), read = async p => zip[p] ? zip[p]() : null;
+  const parse = async (p, type) => new DOMParser().parseFromString(dec.decode(await read(p) || new Uint8Array()), type);
+  const all = (doc, tag) => [...doc.getElementsByTagNameNS('*', tag)];
+  const opfPath = all(await parse('META-INF/container.xml', 'application/xml'), 'rootfile')[0].getAttribute('full-path');
+  const opf = await parse(opfPath, 'application/xml'), at = h => resolvePath(opfPath, h);
+  const dc = n => all(opf, n).map(x => x.textContent.trim()).filter(Boolean);
+  const items = Object.fromEntries(all(opf, 'item').map(x => [x.getAttribute('id'), x]));
+  const find = test => Object.values(items).find(test);
+
+  // chapter names from the book's table of contents
+  const names = {}, nav = find(x => /\bnav\b/.test(x.getAttribute('properties'))), ncx = find(x => /ncx/.test(x.getAttribute('media-type')));
+  if (nav) {
+    const p = at(nav.getAttribute('href'));
+    (await parse(p, 'text/html')).querySelectorAll('nav a[href]').forEach(a => names[resolvePath(p, a.getAttribute('href').split('#')[0])] ??= txt(a));
+  } else if (ncx) {
+    const p = at(ncx.getAttribute('href'));
+    for (const np of all(await parse(p, 'application/xml'), 'navPoint')) {
+      const src = all(np, 'content')[0]?.getAttribute('src');
+      if (src) names[resolvePath(p, src.split('#')[0])] ??= all(np, 'text')[0]?.textContent.trim();
+    }
+  }
+
+  const chapters = []; let words = 0;
+  for (const ref of all(opf, 'itemref')) {
+    const it = items[ref.getAttribute('idref')];
+    if (!it || !/html/.test(it.getAttribute('media-type'))) continue;
+    const p = at(it.getAttribute('href')), doc = clean(await parse(p, 'text/html'));
+    for (const img of doc.querySelectorAll('img[src], image')) {   // pictures inside the book are kept, embedded
+      const attr = img.hasAttribute('src') ? 'src' : [...img.attributes].find(a => /href$/.test(a.name))?.name;
+      const path = attr && resolvePath(p, img.getAttribute(attr)), bytes = path && await read(path);
+      if (bytes) img.setAttribute(attr, `data:${MIME[path.split('.').pop().toLowerCase()] || 'image/jpeg'};base64,${b64(bytes)}`);
+    }
+    const text = txt(doc.body);
+    if (!text && !doc.body.querySelector('img, svg')) continue;
+    words += text ? text.split(' ').length : 0;
+    chapters.push({ title: names[p] || txt(doc.body.querySelector('h1, h2, h3')), notes: '', body: doc.body.innerHTML, end: '' });
+  }
+  const metaVal = name => all(opf, 'meta').find(x => x.getAttribute('name') === name)?.getAttribute('content');
+  const coll = all(opf, 'meta').find(x => x.getAttribute('property') === 'belongs-to-collection');
+  const collPos = coll && all(opf, 'meta').find(x => x.getAttribute('refines') === '#' + coll.id && x.getAttribute('property') === 'group-position');
+  const series = metaVal('calibre:series') || coll?.textContent.trim(), part = parseInt(metaVal('calibre:series_index') || collPos?.textContent);
+  const coverItem = find(x => /cover-image/.test(x.getAttribute('properties'))) || items[metaVal('cover')];
+  const coverBytes = coverItem && await read(at(coverItem.getAttribute('href')));
+  return {
+    meta: {
+      kind: 'book', title: dc('title')[0] || 'Untitled', author: dc('creator').join(', '),
+      tags: [['Subjects', dc('subject')], ['Language', dc('language')], ['Series', series && part ? [`Part ${part} of ${series}`] : []]]
+        .filter(([, v]) => v.length),
+      summary: dc('description')[0] ? `<p>${esc(dc('description')[0].replace(/<[^>]+>/g, ' '))}</p>` : '',
+      words: words.toLocaleString('en'), chapters: chapters.length, date: (dc('date')[0] || '').slice(0, 10), last: null,
+    },
+    work: { notes: '', after: '', chapters },
+    cover: coverBytes && new Blob([coverBytes], { type: coverItem.getAttribute('media-type') }),
+  };
+}
+
+/* ---------- Covers ---------- */
+const canvas = (width, height) => Object.assign(document.createElement('canvas'), { width, height });
+async function imageCanvas(blob) {
+  const img = await createImageBitmap(blob), s = Math.min(1, 2000 / img.width), cv = canvas(img.width * s | 0, img.height * s | 0);
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  return cv;
+}
+function textCover(title, author) {   // for books that come without a cover picture
+  const cv = canvas(480, 720), c = cv.getContext('2d'), lines = [''];
+  c.fillStyle = '#6e1728'; c.fillRect(0, 0, 480, 720);
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.font = 'bold 42px Georgia';
+  for (const word of title.split(' ')) {
+    const t = (lines.at(-1) + ' ' + word).trim();
+    c.measureText(t).width > 400 && lines.at(-1) ? lines.push(word) : lines[lines.length - 1] = t;
+  }
+  lines.forEach((l, i) => c.fillText(l, 240, 260 + i * 54));
+  c.font = 'italic 26px Georgia'; c.fillText(author, 240, 300 + lines.length * 54);
+  return cv;
+}
+async function storeCover(id, cv) {
+  covers[id] = cv.toDataURL('image/jpeg', 0.85);
+  await put('c:' + id, await seal(key, covers[id]));
+  index.find(m => m.id === id).cover = true;
+}
+
+/* ---------- Unlock and lock ---------- */
+async function start() {
+  key = null; index = []; groups = []; cache = {}; covers = {}; main.innerHTML = '';
+  document.body.classList.remove('open');
+  const salt = await get('salt');
+  if (!salt) return showWelcome();
+  for (let err = ''; !key;) {
+    const pw = await askPassword('Enter your password to open the library', false, err);
+    try {
+      const k = await deriveKey(pw || '', salt), g = await get('groups');
+      index = await unseal(k, await get('index')); groups = g ? await unseal(k, g) : []; key = k;
+    }
+    catch { err = 'Wrong password, try again'; }
+  }
+  enter();
+}
+function enter() {
+  document.body.classList.add('open');
+  navigator.storage?.persist?.();   // asks the phone not to clear this data when space runs low
+  // Reopen where you left off: same screen, same spot in the chapter
+  const p = place();
+  restoreY = p.y;
+  if ((p.h || '') !== location.hash) location.hash = p.h || ''; else route();
+  importShared();
+}
+
+/* Last screen and scroll position. Only a random work id and a number are kept, nothing readable. */
+let restoreY = null;
+const place = () => { try { return JSON.parse(pref('place')) || {}; } catch { return {}; } };
+// y is the position inside the current chapter (0 = its start), so it survives font-size changes
+const savePlace = () => {
+  if (!key) return;
+  const sec = currentChapter();
+  pref('place', JSON.stringify({ h: location.hash, y: sec ? (scrollY - sec.offsetTop) / sec.offsetHeight : 0 }));
+};
+const currentChapter = () => [...document.querySelectorAll('section.chapter')].filter(x => x.offsetTop <= scrollY + 80).pop()
+  || $('section.chapter');
+
+/* Adds new works, or updates ones already in the library (same title and author, or the work given by id).
+   Reading place, cover and series link are kept; new chapters are counted. */
+async function importFiles(files, id) {
+  const notes = [];
+  for (const f of files) {
+    let parsed;
+    try {
+      const isZip = dec.decode(await f.slice(0, 2).arrayBuffer()) === 'PK';   // EPUB books are zip files
+      parsed = isZip ? await parseEpub(f) : parseWork(await f.text());
+    } catch { notes.push(`Couldn't read ${f.name || 'a shared file'}`); continue; }
+    const { meta, work, cover } = parsed;
+    const old = id ? index.find(m => m.id === id) : index.find(m => m.title === meta.title && m.author === meta.author);
+    const before = old ? old.count ?? parseInt(old.chapters) : 0, added = old ? work.chapters.length - before : 0;
+    Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, readAt: old?.readAt, cover: old?.cover,
+      next: old?.next, rating: old?.rating, added: old?.added || Date.now(), count: work.chapters.length,
+      newFrom: added > 0 ? before : old?.newFrom });   // first new chapter, for the "new chapters" mark
+    await put('w:' + meta.id, await seal(key, work));
+    index = [meta, ...index.filter(m => m !== old)];
+    if (cache.id === meta.id) cache = {};
+    if (cover && !old?.cover) await storeCover(meta.id, await imageCanvas(cover)).catch(() => {});
+    if (meta.kind === 'book' && !meta.cover) await storeCover(meta.id, textCover(meta.title, meta.author));
+    notes.push(!old ? `Added: ${meta.title}` : added > 0 ? `${meta.title}: ${added} new chapter${added > 1 ? 's' : ''}` : `${meta.title}: no new chapters`);
+  }
+  await saveIndex();
+  toast(notes.length > 2 ? `${notes.length} works added or updated` : notes.join(' · '));
+  id ? route() : location.hash === '' ? route() : location.hash = '';
+}
+
+/* Files shared into the app from another app (e.g. Downloads → Share → My Library) wait in a
+   temporary cache until the library is unlocked, then are imported and deleted from there. */
+async function importShared() {
+  const c = await caches.open('shared'), reqs = await c.keys();
+  if (!reqs.length) return;
+  const files = await Promise.all(reqs.map(r => c.match(r).then(x => x.blob())));
+  await Promise.all(reqs.map(r => c.delete(r)));
+  importFiles(files);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); savePlace(); }
+  else if (key && Date.now() - hiddenAt > 5 * 60e3) start();   // auto-lock after 5 minutes in the background
+});
+
+/* ---------- Actions ---------- */
+const actions = {
+  go: v => location.hash = v,
+  lock: start,
+  top: () => scrollTo(0, 0),
+  // In-app full screen: hides only the app's own bar, so Chrome shows no "exit full screen" notice
+  full: () => document.body.classList.toggle('full'),
+  size(arg) { const [k, d] = arg.split(','); pref(k, Math.min(28, Math.max(10, size(k) + +d))); applySizes(); if (location.hash === '#settings') route(); },
+  async create() {
+    const pw = await askPassword('Choose a password (at least 4 characters). If you forget it, the library cannot be recovered.');
+    if (!pw) return;
+    if (pw.length < 4) return toast('Password is too short');
+    if (await askPassword('Type the password again to confirm') !== pw) return toast("Passwords don't match");
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    key = await deriveKey(pw, salt); index = [];
+    await put('salt', salt); await saveIndex(); enter();
+  },
+  async restore() {
+    const [f] = await pickFiles('.json,application/json');
+    const data = f && readBackup(await f.text());
+    if (!data) return f && toast('This is not a library backup file');
+    for (const k in data) await put(k, data[k]);
+    start();
+  },
+  async add(id) {
+    const files = await pickFiles('.html,.htm,.epub,text/html,application/epub+zip', !id);
+    if (files.length) importFiles(files, id);
+  },
+  async cover(id) {
+    const [f] = await pickFiles('image/*');
+    if (!f) return;
+    await storeCover(id, await imageCanvas(f)); await saveIndex(); route();
+  },
+  async uncover(id) {
+    await del('c:' + id); delete covers[id];
+    index.find(m => m.id === id).cover = false; await saveIndex(); route();
+  },
+  async backup() {
+    toast('Preparing backup…');
+    const data = Object.fromEntries(Object.entries(await entries()).map(([k, v]) => [k, b64(v)]));
+    const file = new File([JSON.stringify({ app: 'my-library', v: 1, data })],
+      `library-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    // Saved straight to Downloads: the phone's share sheet refused this file type and failed silently
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name });
+    document.body.append(a); a.click(); a.remove();
+    toast(`Backup saved to Downloads: ${file.name}`);
+  },
+  async merge() {
+    const [f] = await pickFiles('.json,application/json');
+    const data = f && readBackup(await f.text());
+    if (!data) return f && toast('This is not a library backup file');
+    const pw = await askPassword("Enter the backup file's password");
+    if (!pw) return;
+    let bk, list;
+    try { bk = await deriveKey(pw, data.salt); list = await unseal(bk, data.index); }
+    catch { return toast('Wrong password for this file'); }
+    const added = list.filter(m => !index.some(x => x.id === m.id));
+    for (const m of added) for (const k of ['w:' + m.id, 'c:' + m.id, 'p:' + m.id])
+      if (data[k]) await put(k, await seal(key, await unseal(bk, data[k])));
+    index.push(...added); await saveIndex();
+    const bg = data.groups ? await unseal(bk, data.groups) : [];
+    groups.push(...bg.filter(g => !groupById(g.id))); await saveGroups();
+    toast(`${added.length} works added from the backup`); route();
+  },
+  async remove(id) {
+    if (!confirm('Delete this work from your library?')) return;
+    await Promise.all([del('w:' + id), del('c:' + id), del('p:' + id)]);
+    index = index.filter(m => m.id !== id); await saveIndex();
+    groups.forEach(g => g.ids = g.ids.filter(x => x !== id)); await saveGroups();
+    location.hash = '';
+  },
+  async volCover(k) {
+    const [f] = await pickFiles('image/*');
+    if (!f) return;
+    printJob.vols[k].img = await printImage(f); printJob.files = null; await savePrint(); renderExport();
+  },
+  async makePrint() {
+    const { m, w, vols } = printJob, files = [], safe = s => s.replace(/[\\/:*?"<>|]+/g, ' ').trim();
+    const chosen = vols.filter(v => v.sel);
+    for (const [k, v] of chosen.entries()) {
+      $('#printmsg').textContent = `Creating book ${k + 1} of ${chosen.length}…`;
+      const L = new Layout();
+      L.titlePage(m.title, m.author, v.sub);
+      w.chapters.slice(v.a, v.b + 1).forEach((c, j) => L.chapter(chName(c, v.a + j), c.body));
+      while (L.pages.length % 2 || L.pages.length < 32) L.newPage(false);   // even page count, and Lulu's 32-page minimum for paperbacks
+      const name = safe(m.title + (v.sub ? ' - ' + v.sub : ''));
+      files.push({ name: `${name} - interior.pdf`, url: URL.createObjectURL(await interiorPDF(L)) },
+        { name: `${name} - cover.pdf`, url: URL.createObjectURL(await coverPDF({ title: m.title + (v.sub ? ': ' + v.sub : ''), author: m.author,
+          sub: v.sub, pages: L.pages.length, img: v.img })) });
+    }
+    printJob.files = files; renderExport();
+  },
+  async newGroup() { if (await makeGroup()) route(); },
+  async renameGroup(id) {
+    const g = groupById(id), name = prompt('New name for this collection', g.name);
+    if (name?.trim()) { g.name = name.trim(); await saveGroups(); route(); }
+  },
+  async deleteGroup(id) {
+    if (!confirm('Delete this collection? The works stay in your library.')) return;
+    groups = groups.filter(g => g.id !== id); await saveGroups();
+    location.hash = 'groups';
+  },
+  async moveInGroup(arg) {
+    const [gid, wid, d] = arg.split(','), ids = groupById(gid).ids, i = ids.indexOf(wid), j = i + +d;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]]; await saveGroups(); route();
+  },
+  async leaveGroup(arg) {
+    const [gid, wid] = arg.split(','), g = groupById(gid);
+    g.ids = g.ids.filter(x => x !== wid); await saveGroups(); route();
+  },
+};
+async function makeGroup() {
+  const name = prompt('Name for the new collection');
+  if (!name?.trim()) return null;
+  const g = { id: crypto.randomUUID(), name: name.trim(), ids: [] };
+  groups.push(g); await saveGroups();
+  return g;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-do]');
+  if (b) actions[b.dataset.do](b.dataset.arg);
+});
+const reading = () => location.hash.startsWith('#w/');
+main.addEventListener('dblclick', e => {   // double tap on the text toggles full screen
+  if (reading() && !e.target.closest('a, button, select')) { getSelection().removeAllRanges(); actions.full(); }
+});
+main.addEventListener('change', e => {
+  if (e.target.matches('.chsel')) location.hash = e.target.value;
+  if (e.target.matches('.grpsel')) (async () => {
+    const wid = e.target.dataset.id, g = e.target.value === 'new' ? await makeGroup() : groupById(e.target.value);
+    if (g) {
+      const i = g.ids.indexOf(wid);
+      i < 0 ? g.ids.push(wid) : g.ids.splice(i, 1);
+      await saveGroups(); toast(`${i < 0 ? 'Added to' : 'Removed from'} ${g.name}`);
+    }
+    route();
+  })();
+  if (e.target.matches('.volok, .volsel')) {
+    printJob.vols[e.target.dataset.k][e.target.matches('.volok') ? 'ok' : 'sel'] = e.target.checked;
+    printJob.files = null; savePrint(); renderExport();
+  }
+  if (e.target.matches('.ratesel')) {
+    index.find(m => m.id === e.target.dataset.id).rating = +e.target.value || undefined;
+    saveIndex(); toast(+e.target.value ? `Rated ${e.target.value}/10` : 'Rating removed');
+  }
+  if (e.target.matches('.nextsel')) { index.find(m => m.id === e.target.dataset.id).next = e.target.value; saveIndex(); route(); }
+});
+const size = k => +pref(k) || { fs: 12, ls: 12 }[k];
+const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.style.setProperty('--' + k, size(k) + 'px'));
+
+/* ---------- Screens ---------- */
+function route() {
+  if (!key) return;
+  const [view, id, ch] = location.hash.slice(1).split('/');
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === (view === 'g' || view === 's' ? 'groups' : view)));
+  scrollTo(0, 0);
+  updatePos();
+  document.body.classList.remove('hide-bar');
+  $('#menu').hidden = !(view === '' || view === 'shelf');   // sorting and filtering exist only for Works and Bookshelf
+  if ($('#menu').hidden) $('#menu').textContent = '☰';
+  $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
+  if (view !== 'w') document.body.classList.remove('full');
+  const y = restoreY; restoreY = null;
+  if (view === 'w') return showWork(id, ch).then(() => {
+    const sec = $('section.chapter');
+    if (y && sec) scrollTo(0, sec.offsetTop + y * sec.offsetHeight);
+    followChapters(); updatePos(); savePlace();
+  });
+  savePlace();
+  if (view === 'shelf') return showShelf();
+  if (view === 'groups') return showGroups();
+  if (view === 'export') return showExport(id);
+  if (view === 'g') return showGroup(id);
+  if (view === 's') return showSeries(decodeURIComponent(id));
+  if (view === 'settings') return showSettings();
+  showList();
+}
+addEventListener('hashchange', route);
+
+function updatePos() {
+  const pos = $('#pos'), total = document.documentElement.scrollHeight, max = total - innerHeight;
+  pos.style.display = key && location.hash.startsWith('#w/') && max > 0 ? 'block' : 'none';
+  const len = Math.max(24, innerHeight * innerHeight / total);
+  Object.assign(pos.style, { height: len + 'px', top: scrollY / max * (innerHeight - len) + 'px' });
+}
+let lastY = 0;
+addEventListener('scroll', () => {
+  updatePos();
+  if (Math.abs(scrollY - lastY) < 8) return;
+  document.body.classList.toggle('hide-bar', reading() && scrollY > 60 && scrollY > lastY);
+  lastY = scrollY;
+  if (reading()) followChapters();
+  savePlace();
+}, { passive: true });
+addEventListener('resize', updatePos);
+
+function showWelcome() {
+  main.innerHTML = `<div class="center">
+    <h2>My Library</h2>
+    <p class="muted">Everything is stored encrypted on this phone only. Nothing is ever sent anywhere.</p>
+    <button data-do="create">Create a new library</button>
+    <button data-do="restore">Restore from a backup file</button></div>`;
+}
+
+/* AO3 "required tags" squares: rating, category, warnings, completion */
+const tagsOf = (m, re) => m.tags.filter(([l]) => re.test(l)).flatMap(([, v]) => v);
+const sq = (sym, bg, title) => `<span class="sq" style="background:${bg}" title="${esc(title)}">${sym}</span>`;
+const RATINGS = [['general', 'G', '#77a170'], ['teen', 'T', '#e4c400'], ['mature', 'M', '#e9711c'], ['explicit', 'E', '#9c0000']];
+const CATS = { 'f/f': ['♀', '#c21f4c'], 'f/m': ['⚥', '#7a2c8f'], 'm/m': ['♂', '#1f5fb5'], 'gen': ['○', '#77a170'], 'other': ['?', '#222'] };
+function required(m) {
+  const rating = tagsOf(m, /^rating/i).join(), warn = tagsOf(m, /^archive warning/i).join(), cats = tagsOf(m, /^categor/i);
+  const [, r, rc] = RATINGS.find(([k]) => rating.toLowerCase().includes(k)) || [, '', '#fff'];
+  const [c, cc] = cats.length > 1 ? ['', 'linear-gradient(135deg,#c21f4c,#e9711c,#e4c400,#77a170,#1f5fb5,#7a2c8f)']
+                                  : CATS[(cats[0] || '').toLowerCase()] || ['', '#fff'];
+  const done = /^(\d+)\/\1$/.test(m.chapters);
+  return `<div class="req">
+    ${sq(r, rc, rating || 'Not Rated')}${sq(c, cc, cats.join(', ') || 'No category')}
+    ${/no archive warnings/i.test(warn) || !warn ? sq('', '#fff', warn || 'No warnings')
+      : /chose not/i.test(warn) ? sq('!?', '#e9711c', warn) : sq('!', '#9c0000', warn)}
+    ${sq(done ? '✓' : '⊘', done ? '#77a170' : '#9c0000', done ? 'Complete Work' : 'Work in Progress')}</div>`;
+}
+/* Series: AO3's "Part 2 of Name" is linked automatically; a manual choice (m.next) overrides it */
+const seriesOf = m => tagsOf(m, /^series/i).map(s => s.match(/Part (\d+) of (.+)/i)).filter(Boolean).map(([, p, name]) => ({ part: +p, name }));
+const seriesWorks = name => index.map(m => [m, seriesOf(m).find(s => s.name === name)]).filter(([, s]) => s)
+  .sort((a, b) => a[1].part - b[1].part).map(([m]) => m);
+const seriesNames = () => [...new Set(index.flatMap(m => seriesOf(m).map(s => s.name)))].sort((a, b) => a.localeCompare(b));
+const sequencesOf = m => [
+  ...seriesOf(m).map(s => ({ name: s.name, href: '#s/' + encodeURIComponent(s.name), works: seriesWorks(s.name) })),
+  ...groups.filter(g => g.ids.includes(m.id)).map(g => ({ name: g.name, href: '#g/' + g.id, works: g.ids.map(id => index.find(x => x.id === id)).filter(Boolean) })),
+];
+const openLink = m => `#w/${m.id}/${m.last ?? 0}`;
+
+/* AO3-style series bar: "← Previous Work   Part 2 of Name   Next Work →" */
+const seriesBar = m => sequencesOf(m).map(({ name, href, works }) => {
+  const i = works.indexOf(m), prev = works[i - 1], next = works[i + 1];
+  return `<div class="seqbar">${prev ? `<a href="${openLink(prev)}">← ${esc(prev.title)}</a>` : '<span></span>'}
+    <span>Part <b>${i + 1}</b> of <a href="${href}"><b>${esc(name)}</b></a></span>
+    ${next ? `<a href="${openLink(next)}">${esc(next.title)} →</a>` : '<span></span>'}</div>`;
+}).join('');
+
+function blurb(m, extra = '') {
+  const tag = (gi, t) => `<span class="tag" data-k="${esc(gi + '|' + t)}">${esc(t)}</span>`;
+  const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi, t)}</li>`).join('');
+  const lang = tagsOf(m, /^language/i).join(', ');
+  return `<li class="blurb">
+    <div class="hd">${m.kind === 'book' ? '' : required(m)}
+      <div class="ttl"><h4><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a> by ${authorsOf(m).map(a => tag(7, a)).join(', ')}</h4>
+        <h5>${GROUPS[3][1](m).map(t => tag(3, t)).join(', ')}</h5></div>
+      <p class="date">${fmtDate(m.date)}</p></div>
+    <ul class="tags">${group(1, 'warnings')}${group(5, '')}${group(4, '')}${group(6, '')}</ul>
+    ${m.summary ? `<blockquote class="summary">${m.summary}</blockquote>` : ''}
+    ${seriesOf(m).map(s => `<p class="series">Part <b>${s.part}</b> of <a href="#s/${encodeURIComponent(s.name)}"><b>${esc(s.name)}</b></a></p>`).join('')}
+    ${groups.filter(g => g.ids.includes(m.id)).map(g => `<p class="series">Part <b>${g.ids.indexOf(m.id) + 1}</b> of <a href="#g/${g.id}"><b>${esc(g.name)}</b></a></p>`).join('')}
+    ${m.newFrom != null && (m.last ?? -1) < m.newFrom ? `<p class="new">✦ ${m.count - m.newFrom} new chapter${m.count - m.newFrom > 1 ? 's' : ''}</p>` : ''}
+    <dl class="stats">${lang ? `<dt>Language:</dt> <dd>${esc(lang)}</dd>` : ''}
+      <dt>Words:</dt> <dd>${esc(m.words)}</dd> <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
+      ${STATS.filter(k => stat(m, k)).map(k => `<dt>${k}:</dt> <dd>${stat(m, k).toLocaleString('en')}</dd>`).join(' ')}
+      ${m.rating ? `<dt>My Rating:</dt> <dd>${m.rating}/10</dd>` : ''}
+      <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>${extra}
+  </li>`;
+}
+
+/* Kudos, hits etc. as they were in the HTML file when it was added (or last updated) */
+const stat = (m, k) => +(tagsOf(m, /^stats/i).join(' ').match(new RegExp(k + ':\\s*([\\d,]+)', 'i'))?.[1].replace(/,/g, '') || 0);
+const STATS = ['Comments', 'Kudos', 'Bookmarks', 'Hits'];
+const SORTS = {
+  updated: ['Date Updated', m => m.date || ''], added: ['Date Added', m => m.added], read: ['Recently Read', m => m.readAt || 0],
+  title: ['Title', m => m.title.toLowerCase(), 1], author: ['Author', m => m.author.toLowerCase(), 1],
+  words: ['Word Count', m => +String(m.words).replace(/\D/g, '') || 0],
+  kudos: ['Kudos', m => stat(m, 'Kudos')], hits: ['Hits', m => stat(m, 'Hits')],
+  bookmarks: ['Bookmarks', m => stat(m, 'Bookmarks')], comments: ['Comments', m => stat(m, 'Comments')],
+  mine: ['My Rating', m => m.rating || 0],
+};
+const authorsOf = m => m.author.split(/,\s+|\s+and\s+/).filter(Boolean);
+const LABELS = [/^rating/i, /^archive warning/i, /^categor/i, /^fandom/i, /^character/i, /^relationship/i, /^additional/i];
+const GROUPS = ['Ratings', 'Warnings', 'Categories', 'Fandoms', 'Characters', 'Relationships', 'Additional Tags']
+  .map((g, i) => [g, m => tagsOf(m, LABELS[i])]).concat([['Authors', authorsOf], ['Collections', m => groups.filter(g => g.ids.includes(m.id)).map(g => g.name)]]);
+const groupOfLabel = l => LABELS.findIndex(re => re.test(l));
+const filters = { inc: new Set(), exc: new Set() }, openG = new Set();   // kept in memory only, never saved unencrypted
+const hasTag = (m, k) => { const i = k.indexOf('|'); return GROUPS[k.slice(0, i)][1](m).includes(k.slice(i + 1)); };
+const tagName = k => k.slice(k.indexOf('|') + 1);
+
+let shelfKind = '';   // bookshelf: '' = everything, 'book', 'fic'
+const inView = m => location.hash === '#shelf' ? !shelfKind || (shelfKind === 'book') === (m.kind === 'book') : m.kind !== 'book';
+const countsOf = get => {   // [tag, number of works], most common first
+  const c = {};
+  index.filter(m => inView(m) && m.kind !== 'book').forEach(m => new Set(get(m)).forEach(t => c[t] = (c[t] || 0) + 1));
+  return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+};
+
+/* The side menu: Show (bookshelf), Sort by, Include, Exclude — all as AO3-style folding lists */
+function filterPanel() {
+  const section = (id, title, body) => `<details data-g="${id}" ${openG.has(id) ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
+  const radio = (name, v, label, on) => `<label><input type="radio" name="${name}" value="${v}" ${on ? 'checked' : ''}>${esc(label)}</label>`;
+  const booksOnly = location.hash === '#shelf' && shelfKind === 'book';
+  return (location.hash === '#shelf' ? section('show', 'Show', [['', 'Books & fanfics'], ['book', 'Books'], ['fic', 'Fanfics']]
+      .map(([v, l]) => radio('kind', v, l, v === shelfKind)).join('')) : '') +
+    (booksOnly ? '' : section('sort', 'Sort by', Object.entries(SORTS).map(([k, [l]]) => radio('sort', k, l, k === (pref('sort') || 'updated'))).join('')) +
+      (filters.inc.size + filters.exc.size ? '<p><button id="fclear">Clear Filters</button></p>' : '') +
+      [['inc', 'Include'], ['exc', 'Exclude']].map(([mode, title]) => `<h3>${title}</h3>` + GROUPS.map(([g, get], gi) => {
+        const list = countsOf(get);
+        return list.length ? section(mode + gi, g, (gi === 6 ? '<input type="search" class="tagsearch" placeholder="Type a tag…">' : '') + list.map(([t, n]) =>
+          `<label><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')) : '';
+      }).join('')).join(''));
+}
+
+function filtered() {
+  const [, val, asc] = SORTS[pref('sort')] || SORTS.updated, here = index.filter(inView);
+  return here.filter(m => m.kind !== 'book' && [...filters.inc].every(k => hasTag(m, k)) && ![...filters.exc].some(k => hasTag(m, k)))
+    .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1))
+    .concat(here.filter(m => m.kind === 'book'));   // books are never filtered or sorted: they stay in the order added
+}
+
+/* Active filters shown above the results; tap one to remove it */
+const activeFilters = () => filters.inc.size + filters.exc.size ? `<p class="active">${[...filters.inc].map(k => `<button class="chip inc" data-unf="${esc(k)}">✓ ${esc(tagName(k))}</button>`).join('')}${
+  [...filters.exc].map(k => `<button class="chip exc" data-unf="${esc(k)}">✕ ${esc(tagName(k))}</button>`).join('')}<button class="chip" id="unall">Clear all</button></p>` : '';
+
+function toolbar(draw) {
+  main.innerHTML = `<aside id="drawer" class="drawer"><div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>
+      <div id="filters" class="filters"></div></aside><div id="scrim"></div><div id="act"></div><div id="out"></div>`;
+  // side menu: closed until ☰ is tapped; ✕ or tapping outside closes it
+  const drawer = $('#drawer'), panel = $('#filters'), toggleDrawer = open => drawer.classList.toggle('open', open);
+  $('#menu').onclick = () => toggleDrawer(true);
+  $('#dclose').onclick = $('#scrim').onclick = () => toggleDrawer(false);
+  const redraw = rebuild => {
+    const n = filters.inc.size + filters.exc.size;
+    $('#menu').textContent = '☰' + (n ? ` ${n}` : '');
+    $('#act').innerHTML = activeFilters();
+    if (rebuild) { const y = drawer.scrollTop; panel.innerHTML = filterPanel(); drawer.scrollTop = y; }
+    draw();
+  };
+  panel.addEventListener('toggle', e => openG[e.target.open ? 'add' : 'delete'](e.target.dataset.g), true);
+  panel.oninput = e => {   // Additional Tags search: shows only the tags that contain what was typed
+    if (!e.target.matches('.tagsearch')) return;
+    const q = e.target.value.toLowerCase();
+    e.target.parentNode.querySelectorAll('label').forEach(l => l.hidden = !l.textContent.toLowerCase().includes(q));
+  };
+  panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); redraw(true); } };
+  panel.onchange = e => {
+    const t = e.target;
+    if (t.name === 'kind') { shelfKind = t.value; return route(); }
+    if (t.name === 'sort') { pref('sort', t.value); return draw(); }
+    const { f } = t.dataset, k = t.value, other = f === 'inc' ? 'exc' : 'inc';
+    if (!f) return;
+    if (!t.checked) { filters[f].delete(k); return redraw(); }
+    filters[f].add(k); filters[other].delete(k);
+    if (f === 'inc' && k.startsWith('0|')) [...filters.inc].forEach(x => x !== k && x.startsWith('0|') && filters.inc.delete(x));  // one rating at a time, like AO3
+    redraw(true);
+  };
+  $('#act').onclick = e => {
+    const k = e.target.dataset.unf;
+    if (e.target.id === 'unall') { filters.inc.clear(); filters.exc.clear(); }
+    else if (k) { filters.inc.delete(k); filters.exc.delete(k); }
+    else return;
+    redraw(true);
+  };
+  redraw(true);
+}
+
+/* Tapping a tag anywhere (work card or work details) shows only the works with that tag */
+main.addEventListener('click', e => {
+  const k = e.target.closest('.tag[data-k]')?.dataset.k;
+  if (!k) return;
+  filters.inc.clear(); filters.exc.clear(); filters.inc.add(k);
+  location.hash === '' ? route() : location.hash = '';
+});
+
+function showList() {
+  document.title = 'My Library';
+  toolbar(() => {
+    const list = filtered();
+    $('#out').innerHTML = `<h2 class="heading">${list.length} Work${list.length === 1 ? '' : 's'} in My Library</h2>
+      <ol class="works">${list.map(m => blurb(m)).join('')}</ol>` +
+      (index.length ? '' : '<p class="center muted">Your library is empty. Tap "+ Add" and choose an HTML file downloaded from AO3, or an EPUB book.</p>');
+  });
+}
+
+function showShelf() {
+  document.title = 'Bookshelf';
+  toolbar(async () => {
+    const list = filtered().filter(m => m.cover);
+    $('#out').innerHTML = list.length
+      ? `<div class="shelf">${list.map(m => `<a class="book" href="#w/${m.id}/${m.last ?? 0}"><img data-id="${m.id}" alt="${esc(m.title)}"></a>`).join('')}</div>`
+      : '<p class="center muted">No covers yet. Open a work and tap "Cover" to add one.</p>';
+    for (const img of main.querySelectorAll('img[data-id]')) img.src = await getCover(img.dataset.id);
+  });
+}
+
+/* AO3 download labels ("Chapter Notes", "End Notes"...) become AO3-style "Notes:" headings */
+const labels = html => html.replace(/<p>\s*(?:Chapter\s+)?(Summary|Notes|End Notes)\s*<\/p>/gi,
+  (_, t) => `<h3 class="heading">${/notes/i.test(t) ? 'Notes' : 'Summary'}:</h3>`);
+const module = html => html ? `<div class="module">${labels(html)}</div>` : '';
+
+/* Reading: the chosen chapter opens with the work details above it; the following chapters are
+   appended one by one as you scroll, with no details in between, like turning pages in a book. */
+let reader = null;
+const chapterHTML = (c, j, n, bare) => `<section class="chapter" data-ch="${j}">
+    ${n > 1 ? `<h3 class="title"><span>${esc(chName(c, j))}</span></h3>` : ''}
+    ${bare ? '' : module(c.notes)}<div class="userstuff">${c.body}</div>${bare ? '' : module(c.end)}
+  </section>`;   // bare: a chapter reached by scrolling, without the author's notes
+
+function followChapters() {
+  if (!reader) return;
+  const { m, w } = reader, n = w.chapters.length, root = document.documentElement;
+  while (reader.upto < n - 1 && scrollY + innerHeight > root.scrollHeight - 2 * innerHeight) {   // near the end: add the next chapter
+    const j = ++reader.upto;
+    $('#chapters').insertAdjacentHTML('beforeend', chapterHTML(w.chapters[j], j, n, true));
+    if (j === n - 1) $('#workend').innerHTML = upNext(m);
+  }
+  const j = +currentChapter()?.dataset.ch;
+  if (j !== m.last) {   // scrolled into another chapter: remember it and keep the address and menu in step
+    m.last = j; m.readAt = Date.now(); saveIndex();
+    history.replaceState(null, '', `#w/${m.id}/${j}`);
+    if ($('.chsel')) $('.chsel').value = `w/${m.id}/${j}`;
+    document.title = m.title + ' - ' + chName(w.chapters[j], j);
+  }
+}
+
+async function showWork(id, ch) {
+  const m = index.find(x => x.id === id);
+  if (!m) return location.hash = '';
+  if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
+  const w = cache.w, n = w.chapters.length, i = Math.min(+ch || 0, n - 1), c = w.chapters[i];
+  m.last = i; m.readAt = Date.now(); saveIndex();
+  reader = { m, w, upto: i };
+  document.title = m.title + (n === 1 ? '' : ' - ' + chName(c, i));
+  const btn = (j, label) => `<li><a class="btn" href="#w/${id}/${j}">${label}</a></li>`;
+  const dd = (l, v) => /^stats/i.test(l)
+    ? v.join(' ').replace(/(\S+:)\s*(\S+)/g, (_, a, b) => `<span class="st">${esc(a)} ${esc(b)}</span>`)
+    : v.map(t => `<span class="tag" ${groupOfLabel(l) >= 0 ? `data-k="${esc(groupOfLabel(l) + '|' + t)}"` : ''}>${esc(t)}</span>`).join(', ');
+  const warn = l => /warning/i.test(l) ? 'warning' : '';
+
+  main.innerHTML = `
+    <ul class="actions">
+      ${i > 0 ? btn(i - 1, '← Previous') : ''}
+      ${n > 1 ? `<li><select class="chsel">${w.chapters.map((x, j) => `<option value="w/${id}/${j}" ${j === i ? 'selected' : ''}>${esc(j + 1 + '. ' + chName(x, j))}</option>`).join('')}</select></li>` : ''}
+    </ul>
+    <ul class="actions tools">
+      <li><button data-do="full">⛶ Full Screen</button></li>
+      <li><button data-do="size" data-arg="fs,-1">A−</button></li><li><button data-do="size" data-arg="fs,1">A+</button></li>
+      <li><button data-do="cover" data-arg="${id}">${m.cover ? 'Change Cover' : 'Add Cover'}</button></li>
+      ${m.cover ? `<li><button data-do="uncover" data-arg="${id}">Remove Cover</button></li>` : ''}
+      <li><select class="grpsel" data-id="${id}"><option value="">Collections…</option>${groups.map(g =>
+        `<option value="${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}<option value="new">+ New collection</option></select></li>
+      <li><select class="ratesel" data-id="${id}"><option value="">My rating…</option>${[...Array(10)].map((_, r) =>
+        `<option value="${r + 1}" ${m.rating === r + 1 ? 'selected' : ''}>★ ${r + 1}/10</option>`).join('')}</select></li>
+      <li><a class="btn" href="#export/${id}">Print (Lulu)</a></li>
+      <li><button data-do="add" data-arg="${id}">Update</button></li>
+      <li><button data-do="remove" data-arg="${id}">Delete</button></li>
+    </ul>
+    ${seriesBar(m)}
+    <div class="wrapper"><dl class="meta">${m.tags.map(([l, v]) =>
+      `<dt class="${warn(l)}">${esc(l)}:</dt><dd class="${warn(l)}">${dd(l, v)}</dd>`).join('')}</dl></div>
+    <div class="work">
+      <div class="preface">
+        ${m.cover && i === 0 ? `<img class="cover-big" src="${await getCover(id)}" alt="">` : ''}
+        <h2 class="title">${esc(m.title)}</h2><h3 class="byline">${esc(m.author)}</h3><hr class="line">
+        ${i === 0 ? module((m.summary ? `<p>Summary</p><blockquote>${m.summary}</blockquote>` : '') + (w.notes ? `<p>Notes</p><blockquote>${w.notes}</blockquote>` : '')) : ''}
+      </div>
+      <div id="chapters">${chapterHTML(c, i, n)}</div>
+      <div id="workend">${i === n - 1 ? module(w.after) + upNext(m) : ''}</div>
+    </div>
+    <ul class="actions"><li><button data-do="top">↑ Top</button></li></ul>`;
+}
+
+function showGroups() {
+  document.title = 'Collections';
+  main.innerHTML = `<div class="toolbar"><button data-do="newGroup">+ New Collection</button></div>
+    <h2 class="heading">${groups.length} Collection${groups.length === 1 ? '' : 's'}</h2>
+    <ul class="groups">${groups.map(g => `<li><a href="#g/${g.id}">${esc(g.name)}</a>
+      <span class="muted">${g.ids.length} work${g.ids.length === 1 ? '' : 's'}</span></li>`).join('')}</ul>
+    ${groups.length ? '' : '<p class="center muted">No collections yet. Create one, then open a work and choose it in "Collections…".</p>'}
+    ${seriesNames().length ? `<h2 class="heading">Series</h2><p class="muted">Found automatically in AO3 works and EPUB books.</p>
+      <ul class="groups">${seriesNames().map(n => `<li><a href="#s/${encodeURIComponent(n)}">${esc(n)}</a>
+        <span class="muted">${seriesWorks(n).length} works</span></li>`).join('')}</ul>` : ''}`;
+}
+
+function showSeries(name) {
+  const works = seriesWorks(name), first = works[0];
+  if (!first) return location.hash = 'groups';
+  document.title = name;
+  main.innerHTML = `<p><a href="#groups">← Collections</a></p>
+    <h2 class="heading">Series: ${esc(name)}</h2>
+    ${first ? `<ul class="actions tools"><li><a class="btn" href="${openLink(first)}">Read from the start</a></li></ul>` : ''}
+    <div id="out"><ol class="works">${works.map(m => blurb(m)).join('')}</ol></div>`;
+}
+
+function showGroup(id) {
+  const g = groupById(id);
+  if (!g) return location.hash = 'groups';
+  const works = g.ids.map(x => index.find(m => m.id === x)).filter(Boolean), first = works[0];
+  document.title = g.name;
+  main.innerHTML = `<p><a href="#groups">← Collections</a></p>
+    <h2 class="heading">${esc(g.name)}</h2>
+    <ul class="actions tools">
+      ${first ? `<li><a class="btn" href="#w/${first.id}/${first.last ?? 0}">Read from the start</a></li>` : ''}
+      <li><button data-do="renameGroup" data-arg="${id}">Rename</button></li>
+      <li><button data-do="deleteGroup" data-arg="${id}">Delete Collection</button></li>
+    </ul>
+    <div id="out"><ol class="works">${works.map((m, i) => blurb(m, `<div class="gctl"><span class="muted">Order</span>
+      <button data-do="moveInGroup" data-arg="${id},${m.id},-1" ${i ? '' : 'disabled'}>↑</button>
+      <button data-do="moveInGroup" data-arg="${id},${m.id},1" ${i < works.length - 1 ? '' : 'disabled'}>↓</button>
+      <button data-do="leaveGroup" data-arg="${id},${m.id}">Remove</button></div>`)).join('')}</ol></div>
+    ${works.length ? '' : '<p class="center muted">This collection is empty. Open a work and choose this collection in "Collections…".</p>'}`;
+}
+
+function upNext(m) {
+  const opt = (v, l) => `<option value="${v}" ${(m.next || '') === v ? 'selected' : ''}>${esc(l)}</option>`;
+  const manual = m.next && index.find(x => x.id === m.next);   // 'none' finds nothing
+  const nexts = m.next ? (manual ? [['Next', manual]] : [])
+    : sequencesOf(m).map(q => [`Next in ${q.name}`, q.works[q.works.indexOf(m) + 1]]).filter(([, n]) => n);
+  return `<div class="upnext">
+    ${nexts.map(([label, n]) => `<a class="btn" href="${openLink(n)}">${esc(label)}: ${esc(n.title)} →</a><br>`).join('')}
+    <select class="nextsel" data-id="${m.id}">${opt('', 'Next work: automatic (series & collections)')}${opt('none', 'Next work: none')}
+      ${index.filter(x => x !== m).map(x => opt(x.id, 'Next work: ' + x.title)).join('')}</select></div>`;
+}
+
+function showSettings() {
+  document.title = 'Settings';
+  main.innerHTML = `<h2 class="heading">Backup &amp; moving to another phone</h2>
+    <p>The backup file is encrypted with your password, so it can't be read without it. Send it to yourself any way you like
+       (cable, Drive, WhatsApp), then on the new phone open the app and choose "Restore from a backup file".</p>
+    <p><button data-do="backup">Create a backup file</button></p>
+    <p><button data-do="merge">Add works from a backup file to this library</button></p>
+    <h2 class="heading">Text size</h2>
+    ${[['ls', 'Works list &amp; bookshelf'], ['fs', 'Reading']].map(([k, l]) =>
+      `<p>${l}: <button data-do="size" data-arg="${k},-1">A−</button> <b>${size(k)}</b> <button data-do="size" data-arg="${k},1">A+</button></p>`).join('')}
+    <p class="muted">${index.length} works in your library · auto-locks after 5 minutes in the background · app version ${APP_VERSION}</p>`;
+}
+
+/* ---------- Print-ready files for Lulu (6 × 9 in paperback), made entirely on the phone ---------- */
+const PT = 72, BLEED = 0.125 * PT, TRIM_W = 6 * PT, TRIM_H = 9 * PT, PAGE_W = TRIM_W + 2 * BLEED, PAGE_H = TRIM_H + 2 * BLEED;
+const MARGIN = { top: 0.8 * PT, bottom: 0.9 * PT, inside: 1.125 * PT, outside: 0.6 * PT };   // from the trim edge; inside = binding side (Lulu's gutter for books up to 600 pages)
+const BODY = 11, LEAD = 15, PARA_GAP = 7, TEXT_W = TRIM_W - MARGIN.inside - MARGIN.outside, TEXT_H = TRIM_H - MARGIN.top - MARGIN.bottom;
+const spineWidth = pages => (pages / 444 + 0.06) * PT;   // Lulu's paperback formula, in points
+const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+/* A TrueType font: character → glyph, glyph widths, and the raw file for embedding */
+class Font {
+  constructor(ps, bytes, italic, bold) {
+    Object.assign(this, { ps, bytes, italic, bold, used: new Set([0]), memo: new Map() });
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), t = {}, tab = this.tab = {};
+    for (let i = 0, n = dv.getUint16(4); i < n; i++) {
+      const tag = String.fromCharCode(...bytes.subarray(12 + i * 16, 16 + i * 16));
+      tab[tag] = [dv.getUint32(20 + i * 16), dv.getUint32(24 + i * 16)]; t[tag] = tab[tag][0];
+    }
+    this.upem = dv.getUint16(t.head + 18);
+    this.bbox = [36, 38, 40, 42].map(o => dv.getInt16(t.head + o));
+    this.ascent = dv.getInt16(t.hhea + 4); this.descent = dv.getInt16(t.hhea + 6);
+    this.capHeight = dv.getUint16(t['OS/2']) >= 2 ? dv.getInt16(t['OS/2'] + 88) : this.ascent;
+    const nh = dv.getUint16(t.hhea + 34);
+    this.adv = g => dv.getUint16(t.hmtx + 4 * Math.min(g, nh - 1));
+    this.map = new Map();
+    for (let i = 0, n = dv.getUint16(t.cmap + 2); i < n; i++) {
+      const rec = t.cmap + 4 + i * 8, off = t.cmap + dv.getUint32(rec + 4);
+      if (dv.getUint16(rec) === 3 && dv.getUint16(rec + 2) === 10 && dv.getUint16(off) === 12) {   // full Unicode (emoji etc.)
+        for (let k = 0, n = dv.getUint32(off + 12); k < n; k++) {
+          const g = off + 16 + k * 12, first = dv.getUint32(g), last = dv.getUint32(g + 4), gid = dv.getUint32(g + 8);
+          for (let c = first; c <= last; c++) this.map.set(c, gid + c - first);
+        }
+        continue;
+      }
+      if (dv.getUint16(rec) !== 3 || dv.getUint16(rec + 2) !== 1 || dv.getUint16(off) !== 4) continue;   // Windows Unicode, format 4
+      const seg2 = dv.getUint16(off + 6), ends = off + 14, starts = ends + seg2 + 2, deltas = starts + seg2, ranges = deltas + seg2;
+      for (let s = 0; s < seg2; s += 2) {
+        const end = dv.getUint16(ends + s), start = dv.getUint16(starts + s), delta = dv.getInt16(deltas + s), ro = dv.getUint16(ranges + s);
+        for (let c = start; c <= end && c !== 0xFFFF; c++) {
+          let g = ro ? dv.getUint16(ranges + s + ro + 2 * (c - start)) : c;
+          if (g) g = (g + delta) & 0xFFFF;
+          if (g) this.map.set(c, g);
+        }
+      }
+    }
+  }
+  has(cp) { return this.map.has(cp); }
+  gid(ch) { const g = this.map.get(ch.codePointAt(0)) ?? this.map.get(63) ?? 0; this.used.add(g); return g; }   // missing → "?"
+  width(str, size) {
+    let u = this.memo.get(str);
+    if (u === undefined) { u = 0; for (const ch of str) u += this.adv(this.gid(ch)); this.memo.set(str, u); }
+    return u * size / this.upem;
+  }
+  hex(str) { let h = ''; for (const ch of str) h += this.gid(ch).toString(16).padStart(4, '0'); return h; }
+}
+/* Fonts: Liberation Serif in 4 styles (Latin, Greek, Cyrillic, Hebrew), FreeSerif for symbols, emoji, Arabic and more,
+   and IPA Gothic for Japanese and Chinese (loaded only when the text has them). All free fonts that may be embedded. */
+let printFonts;
+const fontsFor = () => printFonts;
+async function loadPrintFonts(cjk) {
+  const get = async file => { const r = await fetch(file); if (!r.ok) throw new Error(file); return JSON.parse(await r.text()); };
+  if (!printFonts) {
+    const d = await get('print-fonts.html');
+    printFonts = [['R', 'LiberationSerif'], ['I', 'LiberationSerif-Italic'], ['B', 'LiberationSerif-Bold'], ['BI', 'LiberationSerif-BoldItalic'], ['S', 'FreeSerif']]
+      .map(([k, ps]) => new Font(ps, unb64(d[k]), /I/.test(k), /B/.test(k)));
+  }
+  if (cjk && !printFonts.cjk) printFonts.push(printFonts.cjk = new Font('IPAGothic', unb64((await get('print-fonts-cjk.html')).J), false, false));
+}
+const INVISIBLE = /[\u200b-\u200f\u2060\ufe0e\ufe0f\u00ad]/g, EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
+const graphemes = new Intl.Segmenter();
+function segments(font, str) {   // each character in the first font that has it: the style's own font, then the fallbacks
+  const out = [], fontFor = cp => font.has(cp) ? font : printFonts.find(x => x.has(cp));
+  for (const { segment } of graphemes.segment(str)) {
+    const cps = [...segment];
+    if (EMOJI.test(segment) && (cps.length > 1 || cps[0].codePointAt(0) >= 0x1f000 || !fontFor(cps[0].codePointAt(0)))) { out.push({ emoji: segment }); continue; }   // colour emoji: a small picture
+    for (const ch of segment.replace(INVISIBLE, '')) {
+      const f = fontFor(ch.codePointAt(0)) || font, last = out.at(-1);
+      last?.font === f ? last.t += ch : out.push({ font: f, t: ch });
+    }
+  }
+  return out;
+}
+const segWidth = (g, size) => g.emoji ? size * 1.1 : g.font.width(g.t, size);
+const textWidth = (font, size, str) => segments(font, str).reduce((w, g) => w + segWidth(g, size), 0);
+const emojiImgs = new Map();
+function emojiName(e) {   // draws the emoji as the phone shows it, once per document set
+  if (!emojiImgs.has(e)) {
+    const cv = canvas(80, 80), c = cv.getContext('2d');
+    c.fillStyle = '#fff'; c.fillRect(0, 0, 80, 80);
+    c.font = '66px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(e, 40, 44);
+    const px = c.getImageData(0, 0, 80, 80).data, gray = new Uint8Array(6400);   // black & white book: grayscale, as Lulu asks
+    for (let i = 0; i < 6400; i++) gray[i] = Math.round(0.299 * px[4 * i] + 0.587 * px[4 * i + 1] + 0.114 * px[4 * i + 2]);
+    emojiImgs.set(e, { name: 'E' + emojiImgs.size, bytes: gray });
+  }
+  return emojiImgs.get(e).name;
+}
+const RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;   // Hebrew, Arabic: written right to left
+
+/* Chapter HTML → blocks of styled text runs */
+function printBlocks(html) {
+  const out = []; let cur = null;
+  const flush = () => { if (cur?.runs.some(r => r.t.trim())) out.push(cur); cur = null; };
+  const walk = (node, st, kind) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { (cur ||= { kind, runs: [] }).runs.push({ t: n.textContent.replace(/­/g, '').replace(/\s+/g, ' '), ...st }); continue; }
+      if (n.nodeType !== 1) continue;
+      const tag = n.tagName, style = n.getAttribute('style') || '';
+      if (tag === 'BR') { cur?.runs.push({ t: '\n', ...st }); continue; }
+      if (tag === 'HR') { flush(); out.push({ kind: 'break' }); continue; }
+      if (/^(SCRIPT|STYLE|IMG|SVG|FIGURE)$/.test(tag)) continue;
+      const block = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|CENTER|SECTION|ARTICLE|TR|DD|DT|PRE|UL|OL|TABLE)$/.test(tag);
+      const s = { b: st.b || /^(B|STRONG|H[1-6])$/.test(tag) || /font-weight:\s*(bold|[6-9]00)/.test(style),
+                  i: st.i || /^(I|EM|CITE)$/.test(tag) || /font-style:\s*italic/.test(style) };
+      if (block) flush();
+      walk(n, s, tag === 'BLOCKQUOTE' ? 'quote' : /^H[1-6]$/.test(tag) ? 'head' : kind);
+      if (block) flush();
+    }
+  };
+  walk(new DOMParser().parseFromString(html, 'text/html').body, { b: false, i: false }, 'p');
+  flush();
+  return out;
+}
+
+function visualOrder(words) {   // right-to-left words: letters reversed, and runs of such words reversed
+  if (!words.some(w => w.parts.some(p => RTL.test(p.t)))) return words;
+  const ws = words.map(w => w.parts.some(p => RTL.test(p.t)) ? { ...w, rtl: true, parts: [...w.parts].reverse().map(p => p.emoji ? p : { ...p, t: [...p.t].reverse().join('') }) } : w);
+  const out = [];
+  for (let i = 0; i < ws.length;) {
+    let j = i;
+    while (ws[j]?.rtl) j++;
+    j > i ? (out.push(...ws.slice(i, j).reverse()), i = j) : out.push(ws[i++]);
+  }
+  return out;
+}
+
+/* Lays text out on 6 × 9 in pages; each page is a list of PDF drawing operations */
+class Layout {
+  constructor() { this.F = fontsFor(); this.pages = []; this.y = 0; }
+  newPage(folio = true) { this.pages.push({ ops: [], folio }); this.y = 0; }
+  x0() { return BLEED + ((this.pages.length - 1) % 2 ? MARGIN.outside : MARGIN.inside); }   // page 1, 3… are right-hand pages
+  font(b, i) { return this.F[(b ? 2 : 0) + (i ? 1 : 0)]; }
+  paragraph(runs, { indent = 0, left = 0, right = 0, align = 'justify', size = BODY, lead = LEAD } = {}) {
+    const words = [], sp = this.F[0].width(' ', size);
+    for (const r of runs) {
+      const font = this.font(r.b, r.i);
+      for (const part of r.t.split(/(\n| +)/)) {
+        const last = words.at(-1);
+        if (part === '\n') words.push({ br: true });
+        else if (/^ +$/.test(part)) { if (last) last.sp = true; }
+        else if (part) last && !last.sp && !last.br ? last.parts.push(...segments(font, part)) : words.push({ parts: segments(font, part) });
+      }
+    }
+    const lines = []; let line = [], used = 0, first = true;
+    const room = () => TEXT_W - left - right - (first ? indent : 0);
+    for (const w of words) {
+      if (w.br) { lines.push({ words: line, last: true, first }); line = []; used = 0; first = false; continue; }
+      w.w = w.parts.reduce((s, p) => s + segWidth(p, size), 0);
+      if (line.length && used + sp + w.w > room()) { lines.push({ words: line, first }); first = false; line = [w]; used = w.w; }
+      else { used += (line.length ? sp : 0) + w.w; line.push(w); }
+    }
+    if (line.length) lines.push({ words: line, last: true, first });
+    for (const L of lines) {
+      if (!this.pages.length || this.y + lead > TEXT_H) this.newPage();
+      const width = TEXT_W - left - right - (L.first ? indent : 0), natural = L.words.reduce((s, w) => s + w.w, 0), gaps = L.words.length - 1;
+      let x = this.x0() + left + (L.first ? indent : 0), gap = sp;
+      if (align === 'justify' && !L.last && gaps && (width - natural) / gaps < sp * 3) gap = (width - natural) / gaps;
+      if (align === 'center') x += (width - natural - sp * gaps) / 2;
+      const base = PAGE_H - BLEED - MARGIN.top - this.y - lead * 0.78;
+      for (const w of visualOrder(L.words)) {
+        for (const p of w.parts) {
+          this.pages.at(-1).ops.push(p.emoji
+            ? `q ${size} 0 0 ${size} ${(x + size * 0.05).toFixed(2)} ${(base - size * 0.2).toFixed(2)} cm /${emojiName(p.emoji)} Do Q`
+            : `BT /F${this.F.indexOf(p.font)} ${size} Tf ${x.toFixed(2)} ${base.toFixed(2)} Td <${p.font.hex(p.t)}> Tj ET`);
+          x += segWidth(p, size);
+        }
+        x += gap;
+      }
+      this.y += lead;
+    }
+  }
+  titlePage(title, author, sub) {
+    this.newPage(false); this.y = 2.4 * PT;
+    this.paragraph([{ t: title }], { align: 'center', size: 24, lead: 30 }); this.y += 16;
+    if (sub) { this.paragraph([{ t: sub, i: true }], { align: 'center', size: 14, lead: 19 }); this.y += 8; }
+    this.paragraph([{ t: author }], { align: 'center', size: 14, lead: 19 });
+    this.newPage(false);   // blank back of the title page, so the first chapter starts on a right-hand page
+  }
+  chapter(title, html) {
+    this.newPage(false); this.y = 1.4 * PT;   // every chapter opens a new page, without a page number
+    if (title) { this.paragraph([{ t: title }], { align: 'center', size: 17, lead: 22 }); this.y += 24; }
+    const sceneBreak = () => { this.y += 6; this.paragraph([{ t: '*   *   *' }], { align: 'center' }); this.y += 6 + PARA_GAP; };
+    for (const b of printBlocks(html)) {
+      if (b.kind === 'break') { sceneBreak(); continue; }
+      const text = b.runs.map(r => r.t).join('').trim();
+      if (!/[\p{L}\p{N}]/u.test(text)) { sceneBreak(); continue; }   // lines like "* * *" or "~~~"
+      if (b.kind === 'head') {
+        if (/^chapter text$/i.test(text) || (title && (norm(title).includes(norm(text)) || norm(text).includes(norm(title))))) continue;
+        this.y += 8; this.paragraph(b.runs.map(r => ({ ...r, b: true })), { align: 'center' }); this.y += 6 + PARA_GAP; continue;
+      }
+      b.runs[0].t = b.runs[0].t.trimStart();
+      this.paragraph(b.runs, b.kind === 'quote' ? { left: 22, right: 22 } : {});
+      if (this.y) this.y += PARA_GAP;   // every line starts at the same left edge; paragraphs are separated by a small space
+    }
+  }
+}
+
+/* A copy of the font with only the glyphs used (glyph numbers unchanged), so files stay small */
+function subsetFont(f) {
+  const b = f.bytes, dv = new DataView(b.buffer, b.byteOffset, b.byteLength), T = f.tab, glyf = T.glyf[0], loca = T.loca[0];
+  const long = dv.getInt16(T.head[0] + 50) === 1, n = dv.getUint16(T.maxp[0] + 4);
+  const at = g => long ? dv.getUint32(loca + 4 * g) : dv.getUint16(loca + 2 * g) * 2;
+  const keep = new Set(f.used), todo = [...keep];
+  while (todo.length) {   // composite glyphs (é = e + ´) need their parts
+    const g = todo.pop(), s = glyf + at(g);
+    if (at(g + 1) <= at(g) || dv.getInt16(s) >= 0) continue;
+    for (let p = s + 10, more = 1; more;) {
+      const flags = dv.getUint16(p), part = dv.getUint16(p + 2);
+      if (!keep.has(part)) { keep.add(part); todo.push(part); }
+      p += 4 + (flags & 1 ? 4 : 2) + (flags & 8 ? 2 : flags & 0x40 ? 4 : flags & 0x80 ? 8 : 0);
+      more = flags & 0x20;
+    }
+  }
+  const newLoca = new DataView(new ArrayBuffer(4 * (n + 1))), pieces = [];
+  let size = 0;
+  for (let g = 0; g < n; g++) {
+    newLoca.setUint32(4 * g, size);
+    if (!keep.has(g)) continue;
+    const piece = b.subarray(glyf + at(g), glyf + at(g + 1));
+    pieces.push([piece, size]); size += (piece.length + 3) & ~3;
+  }
+  newLoca.setUint32(4 * n, size);
+  const glyfOut = new Uint8Array(size);
+  for (const [piece, o] of pieces) glyfOut.set(piece, o);
+  const copy = tag => b.slice(T[tag][0], T[tag][0] + T[tag][1]), head = copy('head');
+  new DataView(head.buffer).setInt16(50, 1);   // long glyph offsets
+  const tables = { head, loca: new Uint8Array(newLoca.buffer), glyf: glyfOut };
+  for (const tag of ['hhea', 'maxp', 'hmtx', 'OS/2', 'post', 'name', 'cvt ', 'fpgm', 'prep']) if (T[tag]) tables[tag] = copy(tag);
+  const tags = Object.keys(tables).sort(), e = Math.floor(Math.log2(tags.length)), out = [];
+  let off = 12 + 16 * tags.length;
+  const dir = new DataView(new ArrayBuffer(off));
+  dir.setUint32(0, 0x10000); dir.setUint16(4, tags.length); dir.setUint16(6, 16 << e); dir.setUint16(8, e); dir.setUint16(10, 16 * tags.length - (16 << e));
+  tags.forEach((tag, i) => {
+    const d = tables[tag], padded = new Uint8Array((d.length + 3) & ~3), pv = new DataView(padded.buffer);
+    padded.set(d);
+    let sum = 0;
+    for (let k = 0; k < padded.length; k += 4) sum = (sum + pv.getUint32(k)) >>> 0;
+    [...tag].forEach((c, k) => dir.setUint8(12 + 16 * i + k, c.charCodeAt(0)));
+    dir.setUint32(16 + 16 * i, sum); dir.setUint32(20 + 16 * i, off); dir.setUint32(24 + 16 * i, d.length);
+    out.push(padded); off += padded.length;
+  });
+  const file = new Uint8Array(off);
+  file.set(new Uint8Array(dir.buffer));
+  let o = dir.byteLength;
+  for (const p of out) { file.set(p, o); o += p.length; }
+  return file;
+}
+
+/* Minimal PDF writer */
+class PDFDoc {
+  objs = [];
+  reserve() { return this.objs.push(null); }
+  set(id, dict, data) { this.objs[id - 1] = [dict, data]; return id; }
+  add(dict, data) { return this.set(this.reserve(), dict, data); }
+  async stream(dict, bytes, id = this.reserve()) {
+    const z = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+    return this.set(id, `<< ${dict} /Filter /FlateDecode /Length ${z.length} >>`, z);
+  }
+  async font(f, id) {   // embeds the whole (small) font file, with widths for every glyph used
+    const k = 1000 / f.upem, sc = v => Math.round(v * k);
+    const bytes = subsetFont(f), file = await this.stream(`/Length1 ${bytes.length}`, bytes);
+    const desc = this.add(`<< /Type /FontDescriptor /FontName /${f.ps} /Flags ${34 + (f.italic ? 64 : 0)} /FontBBox [${f.bbox.map(sc).join(' ')}] /ItalicAngle ${f.italic ? -12 : 0} /Ascent ${sc(f.ascent)} /Descent ${sc(f.descent)} /CapHeight ${sc(f.capHeight)} /StemV ${f.bold ? 140 : 80} /FontFile2 ${file} 0 R >>`);
+    const W = [...f.used].sort((a, b) => a - b).map(g => `${g} [${sc(f.adv(g))}]`).join(' ');
+    const cid = this.add(`<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${f.ps} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${desc} 0 R /W [${W}] /CIDToGIDMap /Identity >>`);
+    return this.set(id, `<< /Type /Font /Subtype /Type0 /BaseFont /${f.ps} /Encoding /Identity-H /DescendantFonts [${cid} 0 R] >>`);
+  }
+  finish(root) {
+    const parts = [new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52, 10, 37, 226, 227, 207, 211, 10])], offsets = [];
+    let len = parts[0].length;
+    const push = b => { parts.push(b); len += b.length; };
+    this.objs.forEach(([dict, data], i) => {
+      offsets.push(len);
+      push(enc.encode(`${i + 1} 0 obj\n${dict}\n${data ? 'stream\n' : ''}`));
+      if (data) { push(data); push(enc.encode('\nendstream')); }
+      push(enc.encode('\nendobj\n'));
+    });
+    push(enc.encode(`xref\n0 ${this.objs.length + 1}\n0000000000 65535 f \n${offsets.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('')}` +
+      `trailer\n<< /Size ${this.objs.length + 1} /Root ${root} 0 R >>\nstartxref\n${len}\n%%EOF\n`));
+    return new Blob(parts, { type: 'application/pdf' });
+  }
+  async document(pages, resources = async () => '') {   // pages: [{ w, h, ops, trim }]
+    const used = fontsFor().map((f, k) => [f, k, f.used.size > 1 && this.reserve()]).filter(([, , id]) => id);
+    const parent = this.reserve(), kids = [], ops = pages.map(p => p.ops.join('\n'));
+    const emoji = [];
+    for (const e of emojiImgs.values()) if (ops.some(o => o.includes(`/${e.name} Do`)))
+      emoji.push(`/${e.name} ${await this.stream('/Type /XObject /Subtype /Image /Width 80 /Height 80 /ColorSpace /DeviceGray /BitsPerComponent 8', e.bytes)} 0 R`);
+    const extraRes = (await resources(this)) || (emoji.length ? `/XObject << ${emoji.join(' ')} >>` : '');
+    for (const [i, p] of pages.entries()) {
+      const c = await this.stream('', enc.encode(ops[i]));
+      kids.push(this.add(`<< /Type /Page /Parent ${parent} 0 R /MediaBox [0 0 ${p.w} ${p.h}] /TrimBox [${p.trim}] /BleedBox [0 0 ${p.w} ${p.h}] ` +
+        `/Resources << /Font << ${used.map(([, k, id]) => `/F${k} ${id} 0 R`).join(' ')} >> ${extraRes} >> /Contents ${c} 0 R >>`));
+    }
+    for (const [f, , id] of used) await this.font(f, id);   // last, so every glyph used is listed
+    this.set(parent, `<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`);
+    return this.finish(this.add(`<< /Type /Catalog /Pages ${parent} 0 R >>`));
+  }
+}
+
+async function interiorPDF(L) {
+  const F = L.F, pages = L.pages.map((p, i) => {
+    if (p.folio) {   // page number, centred under the text
+      const n = String(i + 1), x = BLEED + (i % 2 ? MARGIN.outside : MARGIN.inside) + (TEXT_W - F[0].width(n, 10)) / 2;
+      p.ops.push(`BT /F0 10 Tf ${x.toFixed(2)} ${(BLEED + 0.55 * PT).toFixed(2)} Td <${F[0].hex(n)}> Tj ET`);   // inside Lulu's 0.5 in safety margin
+    }
+    return { w: PAGE_W, h: PAGE_H, ops: p.ops, trim: `${BLEED} ${BLEED} ${PAGE_W - BLEED} ${PAGE_H - BLEED}` };
+  });
+  return new PDFDoc().document(pages);
+}
+
+/* One-piece cover: back (colour from the picture, title and summary) + spine (title · author) + front (the picture) */
+/* Author on the spine as initials: first letter of each word, or first + last letter of a one-word name */
+function initials(author) {
+  const words = author.split(/[\s_\-.,]+/).filter(Boolean);
+  return (words.length > 1 ? words.map(w => [...w][0]).join('') : [...(words[0] || '')].filter((c, i, a) => i === 0 || i === a.length - 1).join('')).toUpperCase();
+}
+async function coverPDF({ title, author, sub, pages, img }) {
+  const F = fontsFor(), spine = spineWidth(pages), W = 2 * TRIM_W + spine + 2 * BLEED, H = PAGE_H;
+  const [r, g, b] = img.rgb.map(v => v / 255 * 0.8), ink = 0.3 * r + 0.59 * g + 0.11 * b > 0.55 ? '0 0 0' : '1 1 1';
+  const ops = [`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg 0 0 ${W.toFixed(2)} ${H} re f`];
+  const fx = BLEED + TRIM_W + spine, fw = W - fx, s = Math.max(fw / img.w, H / img.h), dw = img.w * s, dh = img.h * s;
+  ops.push(`q ${fx.toFixed(2)} 0 ${fw.toFixed(2)} ${H} re W n ${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} ${(fx + (fw - dw) / 2).toFixed(2)} ${((H - dh) / 2).toFixed(2)} cm /Im0 Do Q`, `${ink} rg`);
+  const text = (f, size, x, y, str, m = '1 0 0 1') => ops.push(`BT ${m} ${x.toFixed(2)} ${y.toFixed(2)} Tm ${segments(f, str).filter(g => g.font)
+    .map(g => `/F${F.indexOf(g.font)} ${size.toFixed(2)} Tf <${g.font.hex(g.t)}> Tj`).join(' ')} ET`);   // (emoji are left off the cover)
+  if (spine >= 0.25 * PT) {   // spine text reads top to bottom
+    const label = `${title}   ·   ${initials(author)}`, max = H - 1.5 * PT;
+    let size = Math.min(spine * 0.42, 12);
+    if (textWidth(F[0], size, label) > max) size *= max / textWidth(F[0], size, label);
+    text(F[0], size, BLEED + TRIM_W + spine / 2 - size * 0.33, (H + textWidth(F[0], size, label)) / 2, label, '0 -1 1 0');
+  }
+  if (sub) text(F[0], 20, BLEED + (TRIM_W - textWidth(F[0], 20, sub)) / 2, H / 2, sub);   // back cover: only "Book N", centred; one-book works stay blank
+  return new PDFDoc().document([{ w: W, h: H, ops, trim: `${BLEED} ${BLEED} ${W - BLEED} ${H - BLEED}` }], async doc => `/XObject << /Im0 ${doc.add(
+    `<< /Type /XObject /Subtype /Image /Width ${img.w} /Height ${img.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${img.bytes.length} >>`,
+    img.bytes)} 0 R >>`);
+}
+
+/* Splits chapters into books (never inside a chapter): aiming at about 400 pages, never under 300,
+   over 450 only when there is no better split (then the reader is asked to approve), and avoiding 500+ */
+function planVolumes(counts) {
+  const pre = [0];
+  counts.forEach(c => pre.push(pre.at(-1) + c));
+  const cost = p => (p - 400) ** 2 + 1e9 * Math.max(0, 300 - p) + 1e4 * Math.max(0, p - 450) + 1e7 * Math.max(0, p - 500);
+  const best = [0], cut = [0];
+  for (let i = 1; i <= counts.length; i++) {
+    best[i] = Infinity;
+    for (let j = 0; j < i; j++) {
+      const c = best[j] + cost(pre[i] - pre[j] + 2);
+      if (c < best[i]) { best[i] = c; cut[i] = j; }
+    }
+  }
+  const vols = [];
+  for (let i = counts.length; i > 0; i = cut[i]) vols.unshift([cut[i], i - 1]);
+  return vols;
+}
+
+/* A cover picture for print: high-resolution JPEG, its size and its average colour */
+/* Print quality: the front cover is 6.25 × 9.25 in with bleed, and Lulu wants 300 pixels per inch */
+const PRINT_PX = [6.25 * 300, 9.25 * 300];
+function enlarge(img, factor) {   // Lanczos resampling keeps thin lines and small text much crisper than the browser's own smoothing
+  const sw = img.width, sh = img.height, tw = Math.round(sw * factor), th = Math.round(sh * factor);
+  const sc = canvas(sw, sh), sx = sc.getContext('2d');
+  sx.drawImage(img, 0, 0);
+  const src = sx.getImageData(0, 0, sw, sh).data;
+  const lanczos = x => x === 0 ? 1 : Math.abs(x) >= 3 ? 0 : 3 * Math.sin(Math.PI * x) * Math.sin(Math.PI * x / 3) / (Math.PI * Math.PI * x * x);
+  const taps = (from, to) => Array.from({ length: to }, (_, i) => {   // for each new pixel: first source pixel and 6 weights
+    const c = (i + 0.5) * from / to - 0.5, start = Math.floor(c) - 2, w = [0, 1, 2, 3, 4, 5].map(k => lanczos(c - start - k)), sum = w.reduce((a, b) => a + b);
+    return [start, w.map(v => v / sum)];
+  });
+  const clampi = (v, n) => v < 0 ? 0 : v >= n ? n - 1 : v;
+  const tx = taps(sw, tw), wide = new Float32Array(tw * sh * 3);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < tw; x++) {
+    const [st, w] = tx[x], o = (y * tw + x) * 3;
+    for (let k = 0; k < 6; k++) { const i = (y * sw + clampi(st + k, sw)) * 4; wide[o] += w[k] * src[i]; wide[o + 1] += w[k] * src[i + 1]; wide[o + 2] += w[k] * src[i + 2]; }
+  }
+  const ty = taps(sh, th), out = new ImageData(tw, th), d = out.data;
+  for (let y = 0; y < th; y++) {
+    const [st, w] = ty[y];
+    for (let x = 0; x < tw; x++) {
+      const o = (y * tw + x) * 4;
+      let r = 0, g = 0, b = 0;
+      for (let k = 0; k < 6; k++) { const i = (clampi(st + k, sh) * tw + x) * 3; r += w[k] * wide[i]; g += w[k] * wide[i + 1]; b += w[k] * wide[i + 2]; }
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    }
+  }
+  const cv = canvas(tw, th);
+  cv.getContext('2d').putImageData(out, 0, 0);
+  sharpen(cv, 0.35);
+  return cv;
+}
+function sharpen(cv, amount = 0.8) {   // unsharp mask: brings back edges that enlarging blurs
+  const c = cv.getContext('2d'), { width: w, height: h } = cv, img = c.getImageData(0, 0, w, h), d = img.data, src = d.slice();
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = (y * w + x) * 4;
+    for (let k = i; k < i + 3; k++) d[k] = src[k] + amount * (src[k] - (src[k - 4] + src[k + 4] + src[k - 4 * w] + src[k + 4 * w] + 4 * src[k]) / 8);
+  }
+  c.putImageData(img, 0, 0);
+}
+async function printImage(src) {
+  const bmp = await createImageBitmap(typeof src === 'string' ? new Blob([unb64(src.split(',')[1])]) : src);
+  const need = Math.max(PRINT_PX[0] / bmp.width, PRINT_PX[1] / bmp.height);   // above 1: too small for a sharp print
+  let cv;
+  if (need > 1) cv = enlarge(bmp, need);
+  else {
+    const s = Math.max(need, Math.min(1, 2400 / bmp.width));
+    cv = canvas(bmp.width * s | 0, bmp.height * s | 0);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+  }
+  const c = cv.getContext('2d'), px = c.getImageData(0, 0, cv.width, cv.height).data, rgb = [0, 0, 0];
+  let n = 0;
+  for (let i = 0; i < px.length; i += 4 * 97, n++) for (let k = 0; k < 3; k++) rgb[k] += px[i + k];
+  const url = cv.toDataURL('image/jpeg', 0.92);
+  return { url, bytes: unb64(url.split(',')[1]), w: cv.width, h: cv.height, rgb: rgb.map(v => v / n), from: need > 1 ? [bmp.width, bmp.height] : null };
+}
+
+const savePrint = async () => put('p:' + printJob.m.id, await seal(key, {
+  plan: printJob.vols.map(v => [v.a, v.b]),
+  vols: printJob.vols.map(({ img, ok, sel }) => ({ ok, sel, img: img && { url: img.url, w: img.w, h: img.h, rgb: img.rgb, from: img.from } })),
+}));
+
+/* Export screen: shows the plan, collects a cover for every book, and makes the files only after approval */
+let printJob = null;
+const volPages = v => { const p = 2 + printJob.counts.slice(v.a, v.b + 1).reduce((s, c) => s + c, 0); return Math.max(32, p + p % 2); };
+
+async function showExport(id) {
+  const m = index.find(x => x.id === id);
+  if (!m) return location.hash = '';
+  if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
+  if (printJob?.m !== m) {
+    main.innerHTML = '<p class="center muted">Laying out the pages…</p>';
+    const w = cache.w, all = [m.title, m.author, m.summary, ...w.chapters.map(c => c.title + c.body)].join(' ');
+    try { await loadPrintFonts(/[\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]/.test(all)); }
+    catch { main.innerHTML = '<p class="center muted">The print fonts could not be loaded. Check that print-fonts.html (and print-fonts-cjk.html) were uploaded next to index.html.</p>'; return; }
+    const counts = w.chapters.map((c, j) => { const L = new Layout(); L.chapter(chName(c, j), c.body); return L.pages.length; });
+    const saved = await get('p:' + id).then(x => x && unseal(key, x));   // the setup from last time: covers, choices, approvals
+    let plan = planVolumes(counts);
+    if (saved) {   // after an update, the earlier books stay exactly as they were; only the last one (and any new ones) change
+      const fixed = saved.plan.slice(0, -1), start = saved.plan.at(-1)[0];
+      if (start < counts.length && fixed.every(([, b]) => b < start))
+        plan = [...fixed, ...planVolumes(counts.slice(start)).map(([a, b]) => [a + start, b + start])];
+    }
+    printJob = { m, w, counts, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null, sel: true })) };
+    if (saved) {
+      printJob.changed = plan.map((r, k) => JSON.stringify(r) !== JSON.stringify(saved.plan[k]) && k + 1).filter(Boolean);
+      saved.vols.forEach((sv, k) => {
+        const v = printJob.vols[k];
+        if (!v) return;
+        v.sel = sv.sel; v.ok = sv.ok && !printJob.changed.includes(k + 1);   // approvals stay for books that did not change
+        if (sv.img) v.img = { ...sv.img, bytes: unb64(sv.img.url.split(',')[1]) };
+      });
+    }
+    if (m.cover && !printJob.vols[0].img) printJob.vols[0].img = await printImage(await getCover(id));
+  }
+  renderExport();
+}
+
+function renderExport() {
+  const { m, w, vols, files } = printJob, big = v => volPages(v) > 450, chosen = vols.filter(v => v.sel);
+  const ready = chosen.length && chosen.every(v => v.img && (!big(v) || v.ok));
+  document.title = 'Print with Lulu';
+  main.innerHTML = `<p><a href="#w/${m.id}/${m.last ?? 0}">← Back to the book</a></p>
+    <h2 class="heading">Print with Lulu <span class="muted">(app version ${APP_VERSION})</span></h2>
+    <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books of about 400 pages.` : 'Fits in one book.'}
+      Your covers and choices here are saved.</p>
+    ${printJob.changed?.length ? `<p class="warn">New chapters since last time: ${printJob.changed.map(k => 'Book ' + k).join(', ')} changed. The earlier books stay exactly the same.</p>` : ''}
+    ${vols.map((v, k) => { const p = volPages(v); return `<div class="vol ${v.sel ? '' : 'off'}">
+      <div class="volcover">${v.img ? `<img src="${v.img.url}" alt="">` : '<div class="nocover">No cover yet</div>'}
+        <button data-do="volCover" data-arg="${k}">${v.img ? 'Change cover' : 'Upload cover'}</button>
+        ${v.img?.from ? `<p class="${v.img.from[0] < 700 ? 'warn' : 'muted'}">Enhanced for print from ${v.img.from.join(' × ')} px${
+          v.img.from[0] < 700 ? '. Very small picture: it will look soft. A larger one is better.' : ''}</p>` : ''}</div>
+      <div class="volinfo"><h3>${esc(m.title)}${v.sub ? ': ' + v.sub : ''}</h3>
+        ${vols.length > 1 ? `<label class="pick"><input type="checkbox" class="volsel" data-k="${k}" ${v.sel ? 'checked' : ''}> Print this book</label>` : ''}
+        <p><b>${p} pages</b> · spine ${(spineWidth(p) / PT).toFixed(2)} in</p>
+        <p>Chapters ${v.a + 1}–${v.b + 1}</p>
+        ${big(v) ? `<p class="warn">Longer than 450 pages${p > 500 ? ' and over 500 (a chapter is too long to split it better)' : ''}.</p>
+          <label><input type="checkbox" class="volok" data-k="${k}" ${v.ok ? 'checked' : ''}> I approve ${p} pages</label>` : ''}
+        <details><summary>Show chapters</summary><ol start="${v.a + 1}">${w.chapters.slice(v.a, v.b + 1).map((c, j) => `<li>${esc(chName(c, v.a + j))}</li>`).join('')}</ol></details>
+      </div></div>`; }).join('')}
+    ${files ? `<h2 class="heading">Your files</h2>${files.map(f => `<p><a class="btn" href="${f.url}" download="${esc(f.name)}">⬇ ${esc(f.name)}</a></p>`).join('')}
+      <ol class="steps"><li>On lulu.com choose <b>Create → Print Book</b> (print for yourself, not publish).</li>
+        <li>Pick <b>6 × 9 in (US Trade)</b>, <b>Paperback</b>, black &amp; white.</li>
+        <li>Upload the <b>interior</b> PDF, then choose <b>Upload your cover</b> and upload the <b>cover</b> PDF of the same book.</li>
+        <li>Repeat for every book.</li></ol>`
+    : `<p><button class="primary" data-do="makePrint" ${ready ? '' : 'disabled'}>Approve and create the files</button></p>
+      ${ready ? '' : `<p class="muted">${!chosen.length ? 'Choose at least one book to print. ' : ''}${chosen.some(v => !v.img) ? 'Every chosen book needs a cover. ' : ''}${
+        chosen.some(v => big(v) && !v.ok) ? 'Approve the page count of the long books.' : ''}</p>`}<p id="printmsg" class="muted"></p>`}`;
+}
+
+
+
+applySizes();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+start();
+</script>
+</body>
+</html>
