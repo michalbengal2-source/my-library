@@ -15,6 +15,7 @@
   :root { --red:#900; --ink:#2a2a2a; --muted:#777; --line:#ddd; --fs:12px; --ls:12px;
           --sans:"Lucida Grande","Lucida Sans Unicode","GNU Unifont",Verdana,Helvetica,sans-serif; --serif:Georgia,serif; }
   * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
   html { font-size:12px; }   /* default text size for the whole app */
   body { margin:0; background:#fff; color:var(--ink); font: 1rem/1.5 var(--sans); }
   a { color:var(--red); }
@@ -40,8 +41,25 @@
 
   #out, .toolbar, .picks { font-size:var(--ls); }
   .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
-  .picks { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .picks { display:grid; gap:8px; margin:10px 0 12px; }
+  .toolbar .fill { flex:1; }
+  .menu { font-size:1.3rem; padding:.1em .6em; }
+  .drawer { position:fixed; top:0; right:0; bottom:0; width:min(88vw, 360px); background:#fff; z-index:20; overflow-y:auto;
+            padding:12px; box-shadow:-4px 0 14px #0003; transform:translateX(105%); transition:transform .25s; font-size:var(--ls); }
+  .drawer.open { transform:none; }
+  .drawer select, .drawer #fbtn { width:100%; margin-top:8px; }
+  .dhead { display:flex; justify-content:space-between; align-items:center; font:1.2em var(--serif); }
+  #scrim { position:fixed; inset:0; background:#0005; z-index:19; display:none; }
+  .drawer.open + #scrim { display:block; }
   .picks select { width:100%; min-width:0; }
+  .chars { font-size:var(--ls); border:1px solid var(--line); border-radius:4px; padding:6px 10px; margin-bottom:12px; }
+  .chars summary { cursor:pointer; font-weight:bold; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip { border-radius:14px; padding:3px 10px; background:#f4f4f4; }
+  .chip small { color:#888; }
+  .chip.inc { background:#3c8d40; border-color:#3c8d40; color:#fff; }
+  .chip.exc { background:#b3261e; border-color:#b3261e; color:#fff; }
+  .chip.inc small, .chip.exc small { color:#ffffffb0; }
   h2.heading { font:normal 1.3em var(--serif); margin:6px 0 12px; }
   .tag { color:var(--ink); border-bottom:1px dotted; }
 
@@ -75,6 +93,9 @@
   .blurb .new { margin:8px 0 0; color:var(--red); font-weight:bold; }
   .upnext { text-align:center; margin:2em 0 0; }
   .upnext .btn { margin:4px 0; }
+  .seqbar { display:flex; justify-content:space-between; align-items:center; gap:8px; border:1px solid var(--line); background:#f6f6f6;
+            padding:6px 10px; margin:0 0 8px; font-size:.95em; }
+  .seqbar > * { flex:1; } .seqbar > span { text-align:center; } .seqbar > a:last-child { text-align:right; }
   ul.groups { list-style:none; padding:0; margin:0; font-size:var(--ls); }
   ul.groups li { display:flex; justify-content:space-between; align-items:baseline; border:1px solid var(--line); box-shadow:1px 1px 3px #0001; padding:12px 14px; margin-bottom:10px; }
   ul.groups a { font:1.25em var(--serif); }
@@ -221,12 +242,15 @@ function readBackup(text) {
 }
 
 /* ---------- Parsing an AO3 HTML download ---------- */
-function parseWork(html) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+function clean(doc) {   // removes anything active (scripts, event handlers), keeps text and formatting
   doc.querySelectorAll('script,style,link,iframe,object,embed,form,meta,p.message').forEach(n => n.remove());
   doc.querySelectorAll('*').forEach(el => [...el.attributes].forEach(a => {
     if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
   }));
+  return doc;
+}
+function parseWork(html) {
+  const doc = clean(new DOMParser().parseFromString(html, 'text/html'));
   const pre = doc.querySelector('#preface') || doc.createElement('div');
   const after = doc.querySelector('#afterword');
   const block = label => [...pre.querySelectorAll('p')].find(p => txt(p) === label)?.nextElementSibling?.innerHTML.trim() || '';
@@ -255,6 +279,107 @@ function splitChapters(box) {
     else if (cur) cur[el.matches('.meta, .endnotes') ? 'end' : 'body'] += el.outerHTML;
   }
   return out.length ? out : [{ title: '', notes: '', body: box.innerHTML, end: '' }];
+}
+
+/* ---------- Reading an EPUB book (a zip file) without any outside library ---------- */
+async function unzip(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer()), dv = new DataView(buf.buffer), files = {};
+  let e = buf.length - 22;
+  while (e > 0 && dv.getUint32(e, true) !== 0x06054b50) e--;   // end of the zip's table of contents
+  for (let n = dv.getUint16(e + 10, true), p = dv.getUint32(e + 16, true); n--;) {
+    const method = dv.getUint16(p + 10, true), size = dv.getUint32(p + 20, true), len = dv.getUint16(p + 28, true),
+          local = dv.getUint32(p + 42, true), start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true),
+          data = buf.subarray(start, start + size);
+    files[dec.decode(buf.subarray(p + 46, p + 46 + len))] = async () => method
+      ? new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer())
+      : data;
+    p += 46 + len + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  return files;
+}
+const resolvePath = (base, href) => decodeURIComponent(new URL(href, 'http://x/' + base).pathname.slice(1));
+const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp' };
+
+async function parseEpub(blob) {
+  const zip = await unzip(blob), read = async p => zip[p] ? zip[p]() : null;
+  const parse = async (p, type) => new DOMParser().parseFromString(dec.decode(await read(p) || new Uint8Array()), type);
+  const all = (doc, tag) => [...doc.getElementsByTagNameNS('*', tag)];
+  const opfPath = all(await parse('META-INF/container.xml', 'application/xml'), 'rootfile')[0].getAttribute('full-path');
+  const opf = await parse(opfPath, 'application/xml'), at = h => resolvePath(opfPath, h);
+  const dc = n => all(opf, n).map(x => x.textContent.trim()).filter(Boolean);
+  const items = Object.fromEntries(all(opf, 'item').map(x => [x.getAttribute('id'), x]));
+  const find = test => Object.values(items).find(test);
+
+  // chapter names from the book's table of contents
+  const names = {}, nav = find(x => /\bnav\b/.test(x.getAttribute('properties'))), ncx = find(x => /ncx/.test(x.getAttribute('media-type')));
+  if (nav) {
+    const p = at(nav.getAttribute('href'));
+    (await parse(p, 'text/html')).querySelectorAll('nav a[href]').forEach(a => names[resolvePath(p, a.getAttribute('href').split('#')[0])] ??= txt(a));
+  } else if (ncx) {
+    const p = at(ncx.getAttribute('href'));
+    for (const np of all(await parse(p, 'application/xml'), 'navPoint')) {
+      const src = all(np, 'content')[0]?.getAttribute('src');
+      if (src) names[resolvePath(p, src.split('#')[0])] ??= all(np, 'text')[0]?.textContent.trim();
+    }
+  }
+
+  const chapters = []; let words = 0;
+  for (const ref of all(opf, 'itemref')) {
+    const it = items[ref.getAttribute('idref')];
+    if (!it || !/html/.test(it.getAttribute('media-type'))) continue;
+    const p = at(it.getAttribute('href')), doc = clean(await parse(p, 'text/html'));
+    for (const img of doc.querySelectorAll('img[src], image')) {   // pictures inside the book are kept, embedded
+      const attr = img.hasAttribute('src') ? 'src' : [...img.attributes].find(a => /href$/.test(a.name))?.name;
+      const path = attr && resolvePath(p, img.getAttribute(attr)), bytes = path && await read(path);
+      if (bytes) img.setAttribute(attr, `data:${MIME[path.split('.').pop().toLowerCase()] || 'image/jpeg'};base64,${b64(bytes)}`);
+    }
+    const text = txt(doc.body);
+    if (!text && !doc.body.querySelector('img, svg')) continue;
+    words += text ? text.split(' ').length : 0;
+    chapters.push({ title: names[p] || txt(doc.body.querySelector('h1, h2, h3')), notes: '', body: doc.body.innerHTML, end: '' });
+  }
+  const metaVal = name => all(opf, 'meta').find(x => x.getAttribute('name') === name)?.getAttribute('content');
+  const coll = all(opf, 'meta').find(x => x.getAttribute('property') === 'belongs-to-collection');
+  const collPos = coll && all(opf, 'meta').find(x => x.getAttribute('refines') === '#' + coll.id && x.getAttribute('property') === 'group-position');
+  const series = metaVal('calibre:series') || coll?.textContent.trim(), part = parseInt(metaVal('calibre:series_index') || collPos?.textContent);
+  const coverItem = find(x => /cover-image/.test(x.getAttribute('properties'))) || items[metaVal('cover')];
+  const coverBytes = coverItem && await read(at(coverItem.getAttribute('href')));
+  return {
+    meta: {
+      kind: 'book', title: dc('title')[0] || 'Untitled', author: dc('creator').join(', '),
+      tags: [['Subjects', dc('subject')], ['Language', dc('language')], ['Series', series && part ? [`Part ${part} of ${series}`] : []]]
+        .filter(([, v]) => v.length),
+      summary: dc('description')[0] ? `<p>${esc(dc('description')[0].replace(/<[^>]+>/g, ' '))}</p>` : '',
+      words: words.toLocaleString('en'), chapters: chapters.length, date: (dc('date')[0] || '').slice(0, 10), last: null,
+    },
+    work: { notes: '', after: '', chapters },
+    cover: coverBytes && new Blob([coverBytes], { type: coverItem.getAttribute('media-type') }),
+  };
+}
+
+/* ---------- Covers ---------- */
+const canvas = (width, height) => Object.assign(document.createElement('canvas'), { width, height });
+async function imageCanvas(blob) {
+  const img = await createImageBitmap(blob), s = Math.min(1, 480 / img.width), cv = canvas(img.width * s | 0, img.height * s | 0);
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  return cv;
+}
+function textCover(title, author) {   // for books that come without a cover picture
+  const cv = canvas(480, 720), c = cv.getContext('2d'), lines = [''];
+  c.fillStyle = '#6e1728'; c.fillRect(0, 0, 480, 720);
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.font = 'bold 42px Georgia';
+  for (const word of title.split(' ')) {
+    const t = (lines.at(-1) + ' ' + word).trim();
+    c.measureText(t).width > 400 && lines.at(-1) ? lines.push(word) : lines[lines.length - 1] = t;
+  }
+  lines.forEach((l, i) => c.fillText(l, 240, 260 + i * 54));
+  c.font = 'italic 26px Georgia'; c.fillText(author, 240, 300 + lines.length * 54);
+  return cv;
+}
+async function storeCover(id, cv) {
+  covers[id] = cv.toDataURL('image/jpeg', 0.85);
+  await put('c:' + id, await seal(key, covers[id]));
+  index.find(m => m.id === id).cover = true;
 }
 
 /* ---------- Unlock and lock ---------- */
@@ -286,22 +411,36 @@ function enter() {
 /* Last screen and scroll position. Only a random work id and a number are kept, nothing readable. */
 let restoreY = null;
 const place = () => { try { return JSON.parse(pref('place')) || {}; } catch { return {}; } };
-const savePlace = () => key && pref('place', JSON.stringify({ h: location.hash, y: scrollY / document.documentElement.scrollHeight }));
+// y is the position inside the current chapter (0 = its start), so it survives font-size changes
+const savePlace = () => {
+  if (!key) return;
+  const sec = currentChapter();
+  pref('place', JSON.stringify({ h: location.hash, y: sec ? (scrollY - sec.offsetTop) / sec.offsetHeight : 0 }));
+};
+const currentChapter = () => [...document.querySelectorAll('section.chapter')].filter(x => x.offsetTop <= scrollY + 80).pop()
+  || $('section.chapter');
 
 /* Adds new works, or updates ones already in the library (same title and author, or the work given by id).
    Reading place, cover and series link are kept; new chapters are counted. */
-async function importTexts(texts, id) {
+async function importFiles(files, id) {
   const notes = [];
-  for (const html of texts) {
-    const { meta, work } = parseWork(html);
+  for (const f of files) {
+    let parsed;
+    try {
+      const isZip = dec.decode(await f.slice(0, 2).arrayBuffer()) === 'PK';   // EPUB books are zip files
+      parsed = isZip ? await parseEpub(f) : parseWork(await f.text());
+    } catch { notes.push(`Couldn't read ${f.name || 'a shared file'}`); continue; }
+    const { meta, work, cover } = parsed;
     const old = id ? index.find(m => m.id === id) : index.find(m => m.title === meta.title && m.author === meta.author);
     const before = old ? old.count ?? parseInt(old.chapters) : 0, added = old ? work.chapters.length - before : 0;
     Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, readAt: old?.readAt, cover: old?.cover,
-      next: old?.next, added: old?.added || Date.now(), count: work.chapters.length,
+      next: old?.next, rating: old?.rating, added: old?.added || Date.now(), count: work.chapters.length,
       newFrom: added > 0 ? before : old?.newFrom });   // first new chapter, for the "new chapters" mark
     await put('w:' + meta.id, await seal(key, work));
     index = [meta, ...index.filter(m => m !== old)];
     if (cache.id === meta.id) cache = {};
+    if (cover && !old?.cover) await storeCover(meta.id, await imageCanvas(cover)).catch(() => {});
+    if (meta.kind === 'book' && !meta.cover) await storeCover(meta.id, textCover(meta.title, meta.author));
     notes.push(!old ? `Added: ${meta.title}` : added > 0 ? `${meta.title}: ${added} new chapter${added > 1 ? 's' : ''}` : `${meta.title}: no new chapters`);
   }
   await saveIndex();
@@ -314,9 +453,9 @@ async function importTexts(texts, id) {
 async function importShared() {
   const c = await caches.open('shared'), reqs = await c.keys();
   if (!reqs.length) return;
-  const texts = await Promise.all(reqs.map(r => c.match(r).then(x => x.text())));
+  const files = await Promise.all(reqs.map(r => c.match(r).then(x => x.blob())));
   await Promise.all(reqs.map(r => c.delete(r)));
-  importTexts(texts);
+  importFiles(files);
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { hiddenAt = Date.now(); savePlace(); }
@@ -348,18 +487,13 @@ const actions = {
     start();
   },
   async add(id) {
-    const files = await pickFiles('.html,.htm,text/html', !id);
-    if (files.length) importTexts(await Promise.all(files.map(f => f.text())), id);
+    const files = await pickFiles('.html,.htm,.epub,text/html,application/epub+zip', !id);
+    if (files.length) importFiles(files, id);
   },
   async cover(id) {
     const [f] = await pickFiles('image/*');
     if (!f) return;
-    const img = await createImageBitmap(f), s = Math.min(1, 480 / img.width);
-    const cv = Object.assign(document.createElement('canvas'), { width: img.width * s | 0, height: img.height * s | 0 });
-    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-    covers[id] = cv.toDataURL('image/jpeg', 0.85);
-    await put('c:' + id, await seal(key, covers[id]));
-    index.find(m => m.id === id).cover = true; await saveIndex(); route();
+    await storeCover(id, await imageCanvas(f)); await saveIndex(); route();
   },
   async uncover(id) {
     await del('c:' + id); delete covers[id];
@@ -445,6 +579,10 @@ main.addEventListener('change', e => {
     }
     route();
   })();
+  if (e.target.matches('.ratesel')) {
+    index.find(m => m.id === e.target.dataset.id).rating = +e.target.value || undefined;
+    saveIndex(); toast(+e.target.value ? `Rated ${e.target.value}/10` : 'Rating removed');
+  }
   if (e.target.matches('.nextsel')) { index.find(m => m.id === e.target.dataset.id).next = e.target.value; saveIndex(); route(); }
 });
 const size = k => +pref(k) || { fs: 12, ls: 12 }[k];
@@ -454,18 +592,23 @@ const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.styl
 function route() {
   if (!key) return;
   const [view, id, ch] = location.hash.slice(1).split('/');
-  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === (view === 'g' ? 'groups' : view)));
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === (view === 'g' || view === 's' ? 'groups' : view)));
   scrollTo(0, 0);
   updatePos();
   document.body.classList.remove('hide-bar');
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
   if (view !== 'w') document.body.classList.remove('full');
   const y = restoreY; restoreY = null;
-  if (view === 'w') return showWork(id, ch).then(() => { if (y) scrollTo(0, y * document.documentElement.scrollHeight); updatePos(); savePlace(); });
+  if (view === 'w') return showWork(id, ch).then(() => {
+    const sec = $('section.chapter');
+    if (y && sec) scrollTo(0, sec.offsetTop + y * sec.offsetHeight);
+    followChapters(); updatePos(); savePlace();
+  });
   savePlace();
   if (view === 'shelf') return showShelf();
   if (view === 'groups') return showGroups();
   if (view === 'g') return showGroup(id);
+  if (view === 's') return showSeries(decodeURIComponent(id));
   if (view === 'settings') return showSettings();
   showList();
 }
@@ -483,6 +626,7 @@ addEventListener('scroll', () => {
   if (Math.abs(scrollY - lastY) < 8) return;
   document.body.classList.toggle('hide-bar', reading() && scrollY > 60 && scrollY > lastY);
   lastY = scrollY;
+  if (reading()) followChapters();
   savePlace();
 }, { passive: true });
 addEventListener('resize', updatePos);
@@ -514,59 +658,82 @@ function required(m) {
 }
 /* Series: AO3's "Part 2 of Name" is linked automatically; a manual choice (m.next) overrides it */
 const seriesOf = m => tagsOf(m, /^series/i).map(s => s.match(/Part (\d+) of (.+)/i)).filter(Boolean).map(([, p, name]) => ({ part: +p, name }));
-function nextOf(m) {
-  if (m.next) return index.find(x => x.id === m.next);   // 'none' finds nothing
-  for (const s of seriesOf(m)) {
-    const n = index.find(x => seriesOf(x).some(t => t.name === s.name && t.part === s.part + 1));
-    if (n) return n;
-  }
-}
+const seriesWorks = name => index.map(m => [m, seriesOf(m).find(s => s.name === name)]).filter(([, s]) => s)
+  .sort((a, b) => a[1].part - b[1].part).map(([m]) => m);
+const seriesNames = () => [...new Set(index.flatMap(m => seriesOf(m).map(s => s.name)))].sort((a, b) => a.localeCompare(b));
+const sequencesOf = m => [
+  ...seriesOf(m).map(s => ({ name: s.name, href: '#s/' + encodeURIComponent(s.name), works: seriesWorks(s.name) })),
+  ...groups.filter(g => g.ids.includes(m.id)).map(g => ({ name: g.name, href: '#g/' + g.id, works: g.ids.map(id => index.find(x => x.id === id)).filter(Boolean) })),
+];
+const openLink = m => `#w/${m.id}/${m.last ?? 0}`;
+
+/* AO3-style series bar: "← Previous Work   Part 2 of Name   Next Work →" */
+const seriesBar = m => sequencesOf(m).map(({ name, href, works }) => {
+  const i = works.indexOf(m), prev = works[i - 1], next = works[i + 1];
+  return `<div class="seqbar">${prev ? `<a href="${openLink(prev)}">← ${esc(prev.title)}</a>` : '<span></span>'}
+    <span>Part <b>${i + 1}</b> of <a href="${href}"><b>${esc(name)}</b></a></span>
+    ${next ? `<a href="${openLink(next)}">${esc(next.title)} →</a>` : '<span></span>'}</div>`;
+}).join('');
 
 function blurb(m, extra = '') {
   const tag = (gi, t) => `<span class="tag" data-k="${esc(gi + '|' + t)}">${esc(t)}</span>`;
-  const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi, t)}</li>`).join('');
+  const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi === 5 || gi === 6 ? (t.includes('/') ? 9 : 10) : gi, t)}</li>`).join('');
   const lang = tagsOf(m, /^language/i).join(', ');
   return `<li class="blurb">
-    <div class="hd">${required(m)}
+    <div class="hd">${m.kind === 'book' ? '' : required(m)}
       <div class="ttl"><h4><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a> by ${authorsOf(m).map(a => tag(7, a)).join(', ')}</h4>
         <h5>${GROUPS[3][1](m).map(t => tag(3, t)).join(', ')}</h5></div>
       <p class="date">${fmtDate(m.date)}</p></div>
     <ul class="tags">${group(1, 'warnings')}${group(5, '')}${group(4, '')}${group(6, '')}</ul>
     ${m.summary ? `<blockquote class="summary">${m.summary}</blockquote>` : ''}
-    ${seriesOf(m).map(s => `<p class="series">Part <b>${s.part}</b> of <b>${esc(s.name)}</b></p>`).join('')}
+    ${seriesOf(m).map(s => `<p class="series">Part <b>${s.part}</b> of <a href="#s/${encodeURIComponent(s.name)}"><b>${esc(s.name)}</b></a></p>`).join('')}
     ${groups.filter(g => g.ids.includes(m.id)).map(g => `<p class="series">Part <b>${g.ids.indexOf(m.id) + 1}</b> of <a href="#g/${g.id}"><b>${esc(g.name)}</b></a></p>`).join('')}
     ${m.newFrom != null && (m.last ?? -1) < m.newFrom ? `<p class="new">✦ ${m.count - m.newFrom} new chapter${m.count - m.newFrom > 1 ? 's' : ''}</p>` : ''}
     <dl class="stats">${lang ? `<dt>Language:</dt> <dd>${esc(lang)}</dd>` : ''}
       <dt>Words:</dt> <dd>${esc(m.words)}</dd> <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
+      ${STATS.filter(k => stat(m, k)).map(k => `<dt>${k}:</dt> <dd>${stat(m, k).toLocaleString('en')}</dd>`).join(' ')}
+      ${m.rating ? `<dt>My Rating:</dt> <dd>${m.rating}/10</dd>` : ''}
       <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>${extra}
   </li>`;
 }
 
+/* Kudos, hits etc. as they were in the HTML file when it was added (or last updated) */
+const stat = (m, k) => +(tagsOf(m, /^stats/i).join(' ').match(new RegExp(k + ':\\s*([\\d,]+)', 'i'))?.[1].replace(/,/g, '') || 0);
+const STATS = ['Comments', 'Kudos', 'Bookmarks', 'Hits'];
 const SORTS = {
   updated: ['Date Updated', m => m.date || ''], added: ['Date Added', m => m.added], read: ['Recently Read', m => m.readAt || 0],
   title: ['Title', m => m.title.toLowerCase(), 1], author: ['Author', m => m.author.toLowerCase(), 1],
   words: ['Word Count', m => +String(m.words).replace(/\D/g, '') || 0],
+  kudos: ['Kudos', m => stat(m, 'Kudos')], hits: ['Hits', m => stat(m, 'Hits')],
+  bookmarks: ['Bookmarks', m => stat(m, 'Bookmarks')], comments: ['Comments', m => stat(m, 'Comments')],
+  mine: ['My Rating', m => m.rating || 0],
 };
 const authorsOf = m => m.author.split(/,\s+|\s+and\s+/).filter(Boolean);
 const GROUPS = [['Ratings', /^rating/i], ['Warnings', /^archive warning/i], ['Categories', /^categor/i], ['Fandoms', /^fandom/i],
   ['Characters', /^character/i], ['Relationships', /^relationship/i], ['Additional Tags', /^additional/i]]
-  .map(([g, re]) => [g, m => tagsOf(m, re)]).concat([['Authors', authorsOf], ['Collections', m => groups.filter(g => g.ids.includes(m.id)).map(g => g.name)]]);
+  .map(([g, re]) => [g, m => tagsOf(m, re)]).concat([['Authors', authorsOf], ['Collections', m => groups.filter(g => g.ids.includes(m.id)).map(g => g.name)],
+    // quick lists only: a tag with "/" anywhere in it is a relationship, everything else is a regular tag
+    ['Relationships', m => freeTags(m).filter(t => t.includes('/'))], ['Tags', m => freeTags(m).filter(t => !t.includes('/'))]]);
+const freeTags = m => [...tagsOf(m, /^relationship/i), ...tagsOf(m, /^additional/i)];
+const PANEL_GROUPS = 9;   // the Filters panel shows AO3's own groups (0-8), not the two quick-list groups
 const filters = { inc: new Set(), exc: new Set() }, openG = new Set();   // kept in memory only, never saved unencrypted
 let panelOpen = false;
 const hasTag = (m, k) => { const i = k.indexOf('|'); return GROUPS[k.slice(0, i)][1](m).includes(k.slice(i + 1)); };
 
+let shelfKind = '';   // bookshelf: '' = everything, 'book', 'fic'
+const inView = m => location.hash === '#shelf' ? !shelfKind || (shelfKind === 'book') === (m.kind === 'book') : m.kind !== 'book';
 const countsOf = get => {   // [tag, number of works], most common first
   const c = {};
-  index.forEach(m => new Set(get(m)).forEach(t => c[t] = (c[t] || 0) + 1));
+  index.filter(m => inView(m) && m.kind !== 'book').forEach(m => new Set(get(m)).forEach(t => c[t] = (c[t] || 0) + 1));
   return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 };
 
 /* Quick pick lists above the results: title, fandom, author, tag (they share state with the Filters panel) */
-const PICKS = [['fandoms', [3]], ['authors', [7]], ['tags', [5, 4, 6]], ['collections', [8]]];
+const PICKS = [['fandoms', [3]], ['authors', [7]], ['relationships', [9]], ['tags', [10]], ['collections', [8]]];
 let titleId = '';
 function picks() {
   const opt = (v, label, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(label)}</option>`;
-  return `<select data-pick="title">${opt('', 'All titles')}${[...index].sort((a, b) => a.title.localeCompare(b.title))
+  return `<select data-pick="title">${opt('', 'All titles')}${index.filter(m => inView(m) && m.kind !== 'book').sort((a, b) => a.title.localeCompare(b.title))
       .map(m => opt(m.id, m.title, m.id === titleId)).join('')}</select>` +
     PICKS.map(([l, gs], pi) => `<select data-pick="${pi}">${opt('', 'All ' + l)}${gs.map(gi => `<optgroup label="${GROUPS[gi][0]}">${
       countsOf(GROUPS[gi][1]).map(([t, n]) => opt(gi + '|' + t, `${t} (${n})`, filters.inc.has(gi + '|' + t))).join('')}</optgroup>`).join('')}</select>`).join('');
@@ -574,7 +741,7 @@ function picks() {
 
 function filterPanel() {
   return '<button id="fclear">Clear Filters</button>' + [['inc', 'Include'], ['exc', 'Exclude']].map(([mode, title]) => `<h3>${title}</h3>` +
-    GROUPS.map(([g, get], gi) => {
+    GROUPS.slice(0, PANEL_GROUPS).map(([g, get], gi) => {
       const list = countsOf(get);
       return list.length ? `<details data-g="${mode + gi}" ${openG.has(mode + gi) ? 'open' : ''}><summary>${g}</summary>${list.map(([t, n]) =>
         `<label><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')}</details>` : '';
@@ -582,22 +749,48 @@ function filterPanel() {
 }
 
 function filtered() {
-  const [, val, asc] = SORTS[pref('sort')] || SORTS.updated;
-  return index.filter(m => (!titleId || m.id === titleId)
+  const [, val, asc] = SORTS[pref('sort')] || SORTS.updated, here = index.filter(inView);
+  return here.filter(m => m.kind !== 'book' && (!titleId || m.id === titleId)
       && [...filters.inc].every(k => hasTag(m, k)) && ![...filters.exc].some(k => hasTag(m, k)))
-    .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1));
+    .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1))
+    .concat(here.filter(m => m.kind === 'book'));   // books are never filtered or sorted: they stay in the order added
 }
+
+/* Characters: one tap = must be in the work (green), second tap = must not be (red), third tap = clear */
+let charsOpen = false;
+const chips = () => countsOf(GROUPS[4][1]).map(([t, n]) => {
+  const k = '4|' + t;
+  return `<button class="chip ${filters.inc.has(k) ? 'inc' : filters.exc.has(k) ? 'exc' : ''}" data-k="${esc(k)}">${esc(t)} <small>${n}</small></button>`;
+}).join('') || '<span class="muted">No characters yet</span>';
 function toolbar(draw) {
-  main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add Work</button>
+  main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add</button><span class="fill"></span>
+      <button id="menu" class="menu" aria-label="Sort and filter">☰</button></div>
+    <aside id="drawer" class="drawer">
+    <div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>
+    ${location.hash === '#shelf' ? `<select id="kind">${[['', 'Books & fanfics'], ['book', 'Books'], ['fic', 'Fanfics']]
+      .map(([v, l]) => `<option value="${v}" ${v === shelfKind ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
     <select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === (pref('sort') || 'updated') ? 'selected' : ''}>Sort by ${l}</option>`).join('')}</select>
-    <button id="fbtn"></button></div>
     <div id="picks" class="picks"></div>
-    <div id="filters" class="filters" ${panelOpen ? '' : 'hidden'}></div><div id="out"></div>`;
+    <details id="chars" class="chars" ${charsOpen ? 'open' : ''}><summary></summary><div class="chips"></div></details>
+    <button id="fbtn"></button>
+    <div id="filters" class="filters" ${panelOpen ? '' : 'hidden'}></div>
+    </aside><div id="scrim"></div><div id="out"></div>`;
+  // side menu: closed until ☰ is tapped; ✕ or tapping outside closes it
+  const drawer = $('#drawer'), toggleDrawer = open => drawer.classList.toggle('open', open);
+  $('#menu').onclick = () => toggleDrawer(true);
+  $('#dclose').onclick = $('#scrim').onclick = () => toggleDrawer(false);
   const panel = $('#filters');
+  // only books on the shelf: filters and sorting don't apply to books, so they are hidden
+  if (location.hash === '#shelf' && shelfKind === 'book') ['#sort', '#fbtn', '#picks', '#chars'].forEach(x => $(x).hidden = true);
   const redraw = (rebuild) => {
     const n = filters.inc.size + filters.exc.size + !!titleId;
-    $('#fbtn').textContent = 'Filters' + (n ? ` (${n})` : '');
-    if (rebuild) { panel.innerHTML = filterPanel(); $('#picks').innerHTML = picks(); }
+    $('#fbtn').textContent = 'Include / Exclude' + (n ? ` (${n} active)` : '');
+    $('#menu').textContent = '☰' + (n ? ` ${n}` : '');
+    if (rebuild) {
+      panel.innerHTML = filterPanel(); $('#picks').innerHTML = picks(); $('#chars .chips').innerHTML = chips();
+      const sel = [...filters.inc, ...filters.exc].filter(k => k.startsWith('4|')).length;
+      $('#chars summary').textContent = 'Characters' + (sel ? ` (${sel} selected)` : '');
+    }
     draw();
   };
   $('#picks').onchange = e => {
@@ -610,6 +803,16 @@ function toolbar(draw) {
     redraw(true);
   };
   $('#sort').onchange = () => { pref('sort', $('#sort').value); draw(); };
+  if ($('#kind')) $('#kind').onchange = () => { shelfKind = $('#kind').value; route(); };
+  $('#chars').ontoggle = e => { charsOpen = e.target.open; };
+  $('#chars .chips').onclick = e => {
+    const k = e.target.closest('.chip')?.dataset.k;
+    if (!k) return;
+    if (filters.inc.has(k)) { filters.inc.delete(k); filters.exc.add(k); }
+    else if (filters.exc.has(k)) filters.exc.delete(k);
+    else filters.inc.add(k);
+    redraw(true);
+  };
   $('#fbtn').onclick = () => { panel.hidden = !(panelOpen = !panelOpen); };
   panel.addEventListener('toggle', e => openG[e.target.open ? 'add' : 'delete'](e.target.dataset.g), true);
   panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); titleId = ''; redraw(true); } };
@@ -629,8 +832,8 @@ function showList() {
   toolbar(() => {
     const list = filtered();
     $('#out').innerHTML = `<h2 class="heading">${list.length} Work${list.length === 1 ? '' : 's'} in My Library</h2>
-      <ol class="works">${list.map(blurb).join('')}</ol>` +
-      (index.length ? '' : '<p class="center muted">Your library is empty. Tap "+ Add" and choose an HTML file downloaded from AO3.</p>');
+      <ol class="works">${list.map(m => blurb(m)).join('')}</ol>` +
+      (index.length ? '' : '<p class="center muted">Your library is empty. Tap "+ Add" and choose an HTML file downloaded from AO3, or an EPUB book.</p>');
   });
 }
 
@@ -650,15 +853,40 @@ const labels = html => html.replace(/<p>\s*(?:Chapter\s+)?(Summary|Notes|End Not
   (_, t) => `<h3 class="heading">${/notes/i.test(t) ? 'Notes' : 'Summary'}:</h3>`);
 const module = html => html ? `<div class="module">${labels(html)}</div>` : '';
 
+/* Reading: the chosen chapter opens with the work details above it; the following chapters are
+   appended one by one as you scroll, with no details in between, like turning pages in a book. */
+let reader = null;
+const chapterHTML = (c, j, n) => `<section class="chapter" data-ch="${j}">
+    ${n > 1 ? `<h3 class="title"><span>${esc(chName(c, j))}</span></h3>` : ''}
+    ${module(c.notes)}<div class="userstuff">${c.body}</div>${module(c.end)}
+  </section>`;
+
+function followChapters() {
+  if (!reader) return;
+  const { m, w } = reader, n = w.chapters.length, root = document.documentElement;
+  while (reader.upto < n - 1 && scrollY + innerHeight > root.scrollHeight - 2 * innerHeight) {   // near the end: add the next chapter
+    const j = ++reader.upto;
+    $('#chapters').insertAdjacentHTML('beforeend', chapterHTML(w.chapters[j], j, n));
+    if (j === n - 1) $('#workend').innerHTML = module(w.after) + upNext(m);
+  }
+  const j = +currentChapter()?.dataset.ch;
+  if (j !== m.last) {   // scrolled into another chapter: remember it and keep the address and menu in step
+    m.last = j; m.readAt = Date.now(); saveIndex();
+    history.replaceState(null, '', `#w/${m.id}/${j}`);
+    if ($('.chsel')) $('.chsel').value = `w/${m.id}/${j}`;
+    document.title = m.title + ' - ' + chName(w.chapters[j], j);
+  }
+}
+
 async function showWork(id, ch) {
   const m = index.find(x => x.id === id);
   if (!m) return location.hash = '';
   if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
   const w = cache.w, n = w.chapters.length, i = Math.min(+ch || 0, n - 1), c = w.chapters[i];
   m.last = i; m.readAt = Date.now(); saveIndex();
+  reader = { m, w, upto: i };
   document.title = m.title + (n === 1 ? '' : ' - ' + chName(c, i));
   const btn = (j, label) => `<li><a class="btn" href="#w/${id}/${j}">${label}</a></li>`;
-  const nav = (i > 0 ? btn(i - 1, '← Previous') : '') + (i < n - 1 ? btn(i + 1, 'Next →') : '');
   const dd = (l, v) => /^stats/i.test(l)
     ? v.join(' ').replace(/(\S+:)\s*(\S+)/g, (_, a, b) => `<span class="st">${esc(a)} ${esc(b)}</span>`)
     : v.map(t => `<span class="tag">${esc(t)}</span>`).join(', ');
@@ -668,7 +896,6 @@ async function showWork(id, ch) {
     <ul class="actions">
       ${i > 0 ? btn(i - 1, '← Previous') : ''}
       ${n > 1 ? `<li><select class="chsel">${w.chapters.map((x, j) => `<option value="w/${id}/${j}" ${j === i ? 'selected' : ''}>${esc(j + 1 + '. ' + chName(x, j))}</option>`).join('')}</select></li>` : ''}
-      ${i < n - 1 ? btn(i + 1, 'Next →') : ''}
     </ul>
     <ul class="actions tools">
       <li><button data-do="full">⛶ Full Screen</button></li>
@@ -677,9 +904,12 @@ async function showWork(id, ch) {
       ${m.cover ? `<li><button data-do="uncover" data-arg="${id}">Remove Cover</button></li>` : ''}
       <li><select class="grpsel" data-id="${id}"><option value="">Collections…</option>${groups.map(g =>
         `<option value="${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}<option value="new">+ New collection</option></select></li>
+      <li><select class="ratesel" data-id="${id}"><option value="">My rating…</option>${[...Array(10)].map((_, r) =>
+        `<option value="${r + 1}" ${m.rating === r + 1 ? 'selected' : ''}>★ ${r + 1}/10</option>`).join('')}</select></li>
       <li><button data-do="add" data-arg="${id}">Update</button></li>
       <li><button data-do="remove" data-arg="${id}">Delete</button></li>
     </ul>
+    ${seriesBar(m)}
     <div class="wrapper"><dl class="meta">${m.tags.map(([l, v]) =>
       `<dt class="${warn(l)}">${esc(l)}:</dt><dd class="${warn(l)}">${dd(l, v)}</dd>`).join('')}</dl></div>
     <div class="work">
@@ -688,15 +918,10 @@ async function showWork(id, ch) {
         <h2 class="title">${esc(m.title)}</h2><h3 class="byline">${esc(m.author)}</h3><hr class="line">
         ${i === 0 ? module((m.summary ? `<p>Summary</p><blockquote>${m.summary}</blockquote>` : '') + (w.notes ? `<p>Notes</p><blockquote>${w.notes}</blockquote>` : '')) : ''}
       </div>
-      <section class="chapter">
-        ${n > 1 ? `<h3 class="title"><span>${esc(chName(c, i))}</span></h3>` : ''}
-        ${module(c.notes)}
-        <div class="userstuff">${c.body}</div>
-        ${module(c.end)}
-      </section>
-      ${i === n - 1 ? module(w.after) + upNext(m) : ''}
+      <div id="chapters">${chapterHTML(c, i, n)}</div>
+      <div id="workend">${i === n - 1 ? module(w.after) + upNext(m) : ''}</div>
     </div>
-    <ul class="actions">${nav}<li><button data-do="top">↑ Top</button></li></ul>`;
+    <ul class="actions"><li><button data-do="top">↑ Top</button></li></ul>`;
 }
 
 function showGroups() {
@@ -705,7 +930,20 @@ function showGroups() {
     <h2 class="heading">${groups.length} Collection${groups.length === 1 ? '' : 's'}</h2>
     <ul class="groups">${groups.map(g => `<li><a href="#g/${g.id}">${esc(g.name)}</a>
       <span class="muted">${g.ids.length} work${g.ids.length === 1 ? '' : 's'}</span></li>`).join('')}</ul>
-    ${groups.length ? '' : '<p class="center muted">No collections yet. Create one, then open a work and choose it in "Collections…".</p>'}`;
+    ${groups.length ? '' : '<p class="center muted">No collections yet. Create one, then open a work and choose it in "Collections…".</p>'}
+    ${seriesNames().length ? `<h2 class="heading">Series</h2><p class="muted">Found automatically in AO3 works and EPUB books.</p>
+      <ul class="groups">${seriesNames().map(n => `<li><a href="#s/${encodeURIComponent(n)}">${esc(n)}</a>
+        <span class="muted">${seriesWorks(n).length} works</span></li>`).join('')}</ul>` : ''}`;
+}
+
+function showSeries(name) {
+  const works = seriesWorks(name), first = works[0];
+  if (!first) return location.hash = 'groups';
+  document.title = name;
+  main.innerHTML = `<p><a href="#groups">← Collections</a></p>
+    <h2 class="heading">Series: ${esc(name)}</h2>
+    ${first ? `<ul class="actions tools"><li><a class="btn" href="${openLink(first)}">Read from the start</a></li></ul>` : ''}
+    <div id="out"><ol class="works">${works.map(m => blurb(m)).join('')}</ol></div>`;
 }
 
 function showGroup(id) {
@@ -728,12 +966,13 @@ function showGroup(id) {
 }
 
 function upNext(m) {
-  const nx = nextOf(m), opt = (v, l) => `<option value="${v}" ${(m.next || '') === v ? 'selected' : ''}>${esc(l)}</option>`;
+  const opt = (v, l) => `<option value="${v}" ${(m.next || '') === v ? 'selected' : ''}>${esc(l)}</option>`;
+  const manual = m.next && index.find(x => x.id === m.next);   // 'none' finds nothing
+  const nexts = m.next ? (manual ? [['Next', manual]] : [])
+    : sequencesOf(m).map(q => [`Next in ${q.name}`, q.works[q.works.indexOf(m) + 1]]).filter(([, n]) => n);
   return `<div class="upnext">
-    ${nx ? `<a class="btn" href="#w/${nx.id}/${nx.last ?? 0}">Next in series: ${esc(nx.title)} →</a><br>` : ''}
-    ${groups.map(g => [g, index.find(x => x.id === g.ids[g.ids.indexOf(m.id) + 1])]).filter(([g, n]) => g.ids.includes(m.id) && n)
-      .map(([g, n]) => `<a class="btn" href="#w/${n.id}/${n.last ?? 0}">Next in ${esc(g.name)}: ${esc(n.title)} →</a><br>`).join('')}
-    <select class="nextsel" data-id="${m.id}">${opt('', 'Next work: automatic (AO3 series)')}${opt('none', 'Next work: none')}
+    ${nexts.map(([label, n]) => `<a class="btn" href="${openLink(n)}">${esc(label)}: ${esc(n.title)} →</a><br>`).join('')}
+    <select class="nextsel" data-id="${m.id}">${opt('', 'Next work: automatic (series & collections)')}${opt('none', 'Next work: none')}
       ${index.filter(x => x !== m).map(x => opt(x.id, 'Next work: ' + x.title)).join('')}</select></div>`;
 }
 
