@@ -562,7 +562,7 @@ const actions = {
       const L = new Layout();
       L.titlePage(m.title, m.author, v.sub);
       w.chapters.slice(v.a, v.b + 1).forEach((c, j) => L.chapter(chName(c, v.a + j), c.body));
-      if (L.pages.length % 2) L.newPage(false);   // printed books have an even number of pages
+      while (L.pages.length % 2 || L.pages.length < 32) L.newPage(false);   // even page count, and Lulu's 32-page minimum for paperbacks
       const name = safe(m.title + (v.sub ? ' - ' + v.sub : ''));
       files.push({ name: `${name} - interior.pdf`, url: URL.createObjectURL(await interiorPDF(L)) },
         { name: `${name} - cover.pdf`, url: URL.createObjectURL(await coverPDF({ title: m.title + (v.sub ? ': ' + v.sub : ''), author: m.author,
@@ -1011,7 +1011,7 @@ function showSettings() {
 
 /* ---------- Print-ready files for Lulu (6 × 9 in paperback), made entirely on the phone ---------- */
 const PT = 72, BLEED = 0.125 * PT, TRIM_W = 6 * PT, TRIM_H = 9 * PT, PAGE_W = TRIM_W + 2 * BLEED, PAGE_H = TRIM_H + 2 * BLEED;
-const MARGIN = { top: 0.8 * PT, bottom: 0.9 * PT, inside: 0.875 * PT, outside: 0.625 * PT };   // from the trim edge; inside = binding side
+const MARGIN = { top: 0.8 * PT, bottom: 0.9 * PT, inside: 1.125 * PT, outside: 0.6 * PT };   // from the trim edge; inside = binding side (Lulu's gutter for books up to 600 pages)
 const BODY = 11, LEAD = 15, INDENT = 18, TEXT_W = TRIM_W - MARGIN.inside - MARGIN.outside, TEXT_H = TRIM_H - MARGIN.top - MARGIN.bottom;
 const spineWidth = pages => (pages / 444 + 0.06) * PT;   // Lulu's paperback formula, in points
 const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -1094,10 +1094,12 @@ const textWidth = (font, size, str) => segments(font, str).reduce((w, g) => w + 
 const emojiImgs = new Map();
 function emojiName(e) {   // draws the emoji as the phone shows it, once per document set
   if (!emojiImgs.has(e)) {
-    const cv = canvas(96, 96), c = cv.getContext('2d');
-    c.fillStyle = '#fff'; c.fillRect(0, 0, 96, 96);
-    c.font = '80px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(e, 48, 52);
-    emojiImgs.set(e, { name: 'E' + emojiImgs.size, bytes: unb64(cv.toDataURL('image/jpeg', 0.9).split(',')[1]) });
+    const cv = canvas(80, 80), c = cv.getContext('2d');
+    c.fillStyle = '#fff'; c.fillRect(0, 0, 80, 80);
+    c.font = '66px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(e, 40, 44);
+    const px = c.getImageData(0, 0, 80, 80).data, gray = new Uint8Array(6400);   // black & white book: grayscale, as Lulu asks
+    for (let i = 0; i < 6400; i++) gray[i] = Math.round(0.299 * px[4 * i] + 0.587 * px[4 * i + 1] + 0.114 * px[4 * i + 2]);
+    emojiImgs.set(e, { name: 'E' + emojiImgs.size, bytes: gray });
   }
   return emojiImgs.get(e).name;
 }
@@ -1298,8 +1300,9 @@ class PDFDoc {
   async document(pages, resources = async () => '') {   // pages: [{ w, h, ops, trim }]
     const used = fontsFor().map((f, k) => [f, k, f.used.size > 1 && this.reserve()]).filter(([, , id]) => id);
     const parent = this.reserve(), kids = [], ops = pages.map(p => p.ops.join('\n'));
-    const emoji = [...emojiImgs.values()].filter(e => ops.some(o => o.includes(`/${e.name} Do`))).map(e => `/${e.name} ${this.add(
-      `<< /Type /XObject /Subtype /Image /Width 96 /Height 96 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${e.bytes.length} >>`, e.bytes)} 0 R`);
+    const emoji = [];
+    for (const e of emojiImgs.values()) if (ops.some(o => o.includes(`/${e.name} Do`)))
+      emoji.push(`/${e.name} ${await this.stream('/Type /XObject /Subtype /Image /Width 80 /Height 80 /ColorSpace /DeviceGray /BitsPerComponent 8', e.bytes)} 0 R`);
     const extraRes = (await resources(this)) || (emoji.length ? `/XObject << ${emoji.join(' ')} >>` : '');
     for (const [i, p] of pages.entries()) {
       const c = await this.stream('', enc.encode(ops[i]));
@@ -1316,7 +1319,7 @@ async function interiorPDF(L) {
   const F = L.F, pages = L.pages.map((p, i) => {
     if (p.folio) {   // page number, centred under the text
       const n = String(i + 1), x = BLEED + (i % 2 ? MARGIN.outside : MARGIN.inside) + (TEXT_W - F[0].width(n, 10)) / 2;
-      p.ops.push(`BT /F0 10 Tf ${x.toFixed(2)} ${(BLEED + MARGIN.bottom - 0.45 * PT).toFixed(2)} Td <${F[0].hex(n)}> Tj ET`);
+      p.ops.push(`BT /F0 10 Tf ${x.toFixed(2)} ${(BLEED + 0.55 * PT).toFixed(2)} Td <${F[0].hex(n)}> Tj ET`);   // inside Lulu's 0.5 in safety margin
     }
     return { w: PAGE_W, h: PAGE_H, ops: p.ops, trim: `${BLEED} ${BLEED} ${PAGE_W - BLEED} ${PAGE_H - BLEED}` };
   });
@@ -1421,7 +1424,7 @@ const savePrint = async () => put('p:' + printJob.m.id, await seal(key, {
 
 /* Export screen: shows the plan, collects a cover for every book, and makes the files only after approval */
 let printJob = null;
-const volPages = v => { const p = 2 + printJob.counts.slice(v.a, v.b + 1).reduce((s, c) => s + c, 0); return p + p % 2; };
+const volPages = v => { const p = 2 + printJob.counts.slice(v.a, v.b + 1).reduce((s, c) => s + c, 0); return Math.max(32, p + p % 2); };
 
 async function showExport(id) {
   const m = index.find(x => x.id === id);
