@@ -1433,15 +1433,20 @@ async function showExport(id) {
     try { await loadPrintFonts(/[\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]/.test(all)); }
     catch { main.innerHTML = '<p class="center muted">The print fonts could not be loaded. Check that print-fonts.html (and print-fonts-cjk.html) were uploaded next to index.html.</p>'; return; }
     const counts = w.chapters.map((c, j) => { const L = new Layout(); L.chapter(chName(c, j), c.body); return L.pages.length; });
-    const plan = planVolumes(counts);
-    printJob = { m, w, counts, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null, sel: true })) };
     const saved = await get('p:' + id).then(x => x && unseal(key, x));   // the setup from last time: covers, choices, approvals
+    let plan = planVolumes(counts);
+    if (saved) {   // after an update, the earlier books stay exactly as they were; only the last one (and any new ones) change
+      const fixed = saved.plan.slice(0, -1), start = saved.plan.at(-1)[0];
+      if (start < counts.length && fixed.every(([, b]) => b < start))
+        plan = [...fixed, ...planVolumes(counts.slice(start)).map(([a, b]) => [a + start, b + start])];
+    }
+    printJob = { m, w, counts, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null, sel: true })) };
     if (saved) {
-      printJob.changed = JSON.stringify(saved.plan) !== JSON.stringify(plan);
+      printJob.changed = plan.map((r, k) => JSON.stringify(r) !== JSON.stringify(saved.plan[k]) && k + 1).filter(Boolean);
       saved.vols.forEach((sv, k) => {
         const v = printJob.vols[k];
         if (!v) return;
-        v.sel = sv.sel; v.ok = !printJob.changed && sv.ok;
+        v.sel = sv.sel; v.ok = sv.ok && !printJob.changed.includes(k + 1);   // approvals stay for books that did not change
         if (sv.img) v.img = { ...sv.img, bytes: unb64(sv.img.url.split(',')[1]) };
       });
     }
@@ -1458,7 +1463,7 @@ function renderExport() {
     <h2 class="heading">Print with Lulu</h2>
     <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books of about 400 pages.` : 'Fits in one book.'}
       Your covers and choices here are saved.</p>
-    ${printJob.changed ? '<p class="warn">The work changed since last time, so the split may be different. Check the books and approvals again.</p>' : ''}
+    ${printJob.changed?.length ? `<p class="warn">New chapters since last time: ${printJob.changed.map(k => 'Book ' + k).join(', ')} changed. The earlier books stay exactly the same.</p>` : ''}
     ${vols.map((v, k) => { const p = volPages(v); return `<div class="vol ${v.sel ? '' : 'off'}">
       <div class="volcover">${v.img ? `<img src="${v.img.url}" alt="">` : '<div class="nocover">No cover yet</div>'}
         <button data-do="volCover" data-arg="${k}">${v.img ? 'Change cover' : 'Upload cover'}</button>
