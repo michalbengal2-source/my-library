@@ -375,7 +375,7 @@ async function parseEpub(blob) {
 /* ---------- Covers ---------- */
 const canvas = (width, height) => Object.assign(document.createElement('canvas'), { width, height });
 async function imageCanvas(blob) {
-  const img = await createImageBitmap(blob), s = Math.min(1, 1400 / img.width), cv = canvas(img.width * s | 0, img.height * s | 0);
+  const img = await createImageBitmap(blob), s = Math.min(1, 2000 / img.width), cv = canvas(img.width * s | 0, img.height * s | 0);
   cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
   return cv;
 }
@@ -1373,16 +1373,36 @@ function planVolumes(counts) {
 /* A cover picture for print: high-resolution JPEG, its size and its average colour */
 /* Print quality: the front cover is 6.25 × 9.25 in with bleed, and Lulu wants 300 pixels per inch */
 const PRINT_PX = [6.25 * 300, 9.25 * 300];
-function enlarge(img, factor) {   // in steps of at most ×2 (much smoother than one big jump), then sharpened
-  let cur = img, w = img.width, h = img.height;
-  const tw = Math.round(w * factor), th = Math.round(h * factor);
-  while (w < tw) {
-    w = Math.min(tw, w * 2); h = Math.min(th, h * 2);
-    const cv = canvas(w, h), c = cv.getContext('2d');
-    c.imageSmoothingQuality = 'high'; c.drawImage(cur, 0, 0, w, h); cur = cv;
+function enlarge(img, factor) {   // Lanczos resampling keeps thin lines and small text much crisper than the browser's own smoothing
+  const sw = img.width, sh = img.height, tw = Math.round(sw * factor), th = Math.round(sh * factor);
+  const sc = canvas(sw, sh), sx = sc.getContext('2d');
+  sx.drawImage(img, 0, 0);
+  const src = sx.getImageData(0, 0, sw, sh).data;
+  const lanczos = x => x === 0 ? 1 : Math.abs(x) >= 3 ? 0 : 3 * Math.sin(Math.PI * x) * Math.sin(Math.PI * x / 3) / (Math.PI * Math.PI * x * x);
+  const taps = (from, to) => Array.from({ length: to }, (_, i) => {   // for each new pixel: first source pixel and 6 weights
+    const c = (i + 0.5) * from / to - 0.5, start = Math.floor(c) - 2, w = [0, 1, 2, 3, 4, 5].map(k => lanczos(c - start - k)), sum = w.reduce((a, b) => a + b);
+    return [start, w.map(v => v / sum)];
+  });
+  const clampi = (v, n) => v < 0 ? 0 : v >= n ? n - 1 : v;
+  const tx = taps(sw, tw), wide = new Float32Array(tw * sh * 3);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < tw; x++) {
+    const [st, w] = tx[x], o = (y * tw + x) * 3;
+    for (let k = 0; k < 6; k++) { const i = (y * sw + clampi(st + k, sw)) * 4; wide[o] += w[k] * src[i]; wide[o + 1] += w[k] * src[i + 1]; wide[o + 2] += w[k] * src[i + 2]; }
   }
-  sharpen(cur);
-  return cur;
+  const ty = taps(sh, th), out = new ImageData(tw, th), d = out.data;
+  for (let y = 0; y < th; y++) {
+    const [st, w] = ty[y];
+    for (let x = 0; x < tw; x++) {
+      const o = (y * tw + x) * 4;
+      let r = 0, g = 0, b = 0;
+      for (let k = 0; k < 6; k++) { const i = (clampi(st + k, sh) * tw + x) * 3; r += w[k] * wide[i]; g += w[k] * wide[i + 1]; b += w[k] * wide[i + 2]; }
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    }
+  }
+  const cv = canvas(tw, th);
+  cv.getContext('2d').putImageData(out, 0, 0);
+  sharpen(cv, 0.35);
+  return cv;
 }
 function sharpen(cv, amount = 0.8) {   // unsharp mask: brings back edges that enlarging blurs
   const c = cv.getContext('2d'), { width: w, height: h } = cv, img = c.getImageData(0, 0, w, h), d = img.data, src = d.slice();
