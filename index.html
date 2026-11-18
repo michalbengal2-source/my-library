@@ -37,6 +37,9 @@
   .tabs { flex-basis:100%; display:flex; margin-top:6px; }
   .tabs button { flex:1; background:none; border:0; border-radius:0; color:#ffffffb0; padding:8px 0; border-bottom:3px solid transparent; }
   .tabs button.on { color:#fff; font-weight:bold; border-bottom-color:#fff; }
+  .tabs .hbtn { flex:none; color:#fff; padding:8px 10px; white-space:nowrap; }
+  .tabs #menu { font-size:1.25rem; padding:4px 10px; }
+  .tabs #menu[hidden] { display:inline-block !important; visibility:hidden; }   /* keeps the tabs in place */
   main { max-width:900px; margin:0 auto; padding:12px; }
 
   .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
@@ -159,9 +162,11 @@
   <button class="icon" data-do="go" data-arg="settings" aria-label="Settings">⚙</button>
   <button class="icon" data-do="lock" aria-label="Lock">🔒</button>
   <nav class="tabs">
+    <button class="hbtn" data-do="add">+ Add</button>
     <button data-do="go" data-arg="" data-tab="">Works</button>
     <button data-do="go" data-arg="shelf" data-tab="shelf">Bookshelf</button>
     <button data-do="go" data-arg="groups" data-tab="groups">Collections</button>
+    <button class="hbtn" id="menu" aria-label="Sort and filter">☰</button>
   </nav>
 </header>
 <main id="main"></main>
@@ -625,6 +630,8 @@ function route() {
   scrollTo(0, 0);
   updatePos();
   document.body.classList.remove('hide-bar');
+  $('#menu').hidden = !(view === '' || view === 'shelf');   // sorting and filtering exist only for Works and Bookshelf
+  if ($('#menu').hidden) $('#menu').textContent = '☰';
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
   if (view !== 'w') document.body.classList.remove('full');
   const y = restoreY; restoreY = null;
@@ -783,9 +790,7 @@ const activeFilters = () => filters.inc.size + filters.exc.size ? `<p class="act
   [...filters.exc].map(k => `<button class="chip exc" data-unf="${esc(k)}">✕ ${esc(tagName(k))}</button>`).join('')}<button class="chip" id="unall">Clear all</button></p>` : '';
 
 function toolbar(draw) {
-  main.innerHTML = `<div class="toolbar"><button data-do="add">+ Add</button><span class="fill"></span>
-      <button id="menu" class="menu" aria-label="Sort and filter">☰</button></div>
-    <aside id="drawer" class="drawer"><div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>
+  main.innerHTML = `<aside id="drawer" class="drawer"><div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>
       <div id="filters" class="filters"></div></aside><div id="scrim"></div><div id="act"></div><div id="out"></div>`;
   // side menu: closed until ☰ is tapped; ✕ or tapping outside closes it
   const drawer = $('#drawer'), panel = $('#filters'), toggleDrawer = open => drawer.classList.toggle('open', open);
@@ -863,18 +868,18 @@ const module = html => html ? `<div class="module">${labels(html)}</div>` : '';
 /* Reading: the chosen chapter opens with the work details above it; the following chapters are
    appended one by one as you scroll, with no details in between, like turning pages in a book. */
 let reader = null;
-const chapterHTML = (c, j, n) => `<section class="chapter" data-ch="${j}">
+const chapterHTML = (c, j, n, bare) => `<section class="chapter" data-ch="${j}">
     ${n > 1 ? `<h3 class="title"><span>${esc(chName(c, j))}</span></h3>` : ''}
-    ${module(c.notes)}<div class="userstuff">${c.body}</div>${module(c.end)}
-  </section>`;
+    ${bare ? '' : module(c.notes)}<div class="userstuff">${c.body}</div>${bare ? '' : module(c.end)}
+  </section>`;   // bare: a chapter reached by scrolling, without the author's notes
 
 function followChapters() {
   if (!reader) return;
   const { m, w } = reader, n = w.chapters.length, root = document.documentElement;
   while (reader.upto < n - 1 && scrollY + innerHeight > root.scrollHeight - 2 * innerHeight) {   // near the end: add the next chapter
     const j = ++reader.upto;
-    $('#chapters').insertAdjacentHTML('beforeend', chapterHTML(w.chapters[j], j, n));
-    if (j === n - 1) $('#workend').innerHTML = module(w.after) + upNext(m);
+    $('#chapters').insertAdjacentHTML('beforeend', chapterHTML(w.chapters[j], j, n, true));
+    if (j === n - 1) $('#workend').innerHTML = upNext(m);
   }
   const j = +currentChapter()?.dataset.ch;
   if (j !== m.last) {   // scrolled into another chapter: remember it and keep the address and menu in step
