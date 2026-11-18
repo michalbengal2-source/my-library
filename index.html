@@ -328,8 +328,8 @@ const actions = {
   go: v => location.hash = v,
   lock: start,
   top: () => scrollTo(0, 0),
-  full: () => document.fullscreenElement ? document.exitFullscreen()
-    : document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => toast('Full screen is not available here')),
+  // In-app full screen: hides only the app's own bar, so Chrome shows no "exit full screen" notice
+  full: () => document.body.classList.toggle('full'),
   size(arg) { const [k, d] = arg.split(','); pref(k, Math.min(28, Math.max(10, size(k) + +d))); applySizes(); if (location.hash === '#settings') route(); },
   async create() {
     const pw = await askPassword('Choose a password (at least 4 characters). If you forget it, the library cannot be recovered.');
@@ -434,7 +434,6 @@ const reading = () => location.hash.startsWith('#w/');
 main.addEventListener('dblclick', e => {   // double tap on the text toggles full screen
   if (reading() && !e.target.closest('a, button, select')) { getSelection().removeAllRanges(); actions.full(); }
 });
-document.addEventListener('fullscreenchange', () => document.body.classList.toggle('full', !!document.fullscreenElement));
 main.addEventListener('change', e => {
   if (e.target.matches('.chsel')) location.hash = e.target.value;
   if (e.target.matches('.grpsel')) (async () => {
@@ -460,7 +459,7 @@ function route() {
   updatePos();
   document.body.classList.remove('hide-bar');
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
-  if (view !== 'w' && document.fullscreenElement) document.exitFullscreen();
+  if (view !== 'w') document.body.classList.remove('full');
   const y = restoreY; restoreY = null;
   if (view === 'w') return showWork(id, ch).then(() => { if (y) scrollTo(0, y * document.documentElement.scrollHeight); updatePos(); savePlace(); });
   savePlace();
