@@ -1011,7 +1011,7 @@ function showSettings() {
 /* ---------- Print-ready files for Lulu (6 × 9 in paperback), made entirely on the phone ---------- */
 const PT = 72, BLEED = 0.125 * PT, TRIM_W = 6 * PT, TRIM_H = 9 * PT, PAGE_W = TRIM_W + 2 * BLEED, PAGE_H = TRIM_H + 2 * BLEED;
 const MARGIN = { top: 0.8 * PT, bottom: 0.9 * PT, inside: 1.125 * PT, outside: 0.6 * PT };   // from the trim edge; inside = binding side (Lulu's gutter for books up to 600 pages)
-const BODY = 11, LEAD = 15, INDENT = 18, TEXT_W = TRIM_W - MARGIN.inside - MARGIN.outside, TEXT_H = TRIM_H - MARGIN.top - MARGIN.bottom;
+const BODY = 11, LEAD = 15, PARA_GAP = 7, TEXT_W = TRIM_W - MARGIN.inside - MARGIN.outside, TEXT_H = TRIM_H - MARGIN.top - MARGIN.bottom;
 const spineWidth = pages => (pages / 444 + 0.06) * PT;   // Lulu's paperback formula, in points
 const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
@@ -1196,19 +1196,18 @@ class Layout {
   chapter(title, html) {
     this.newPage(false); this.y = 1.4 * PT;   // every chapter opens a new page, without a page number
     if (title) { this.paragraph([{ t: title }], { align: 'center', size: 17, lead: 22 }); this.y += 24; }
-    let indent = 0;   // no indent right after a heading or a scene break, like printed books
-    const sceneBreak = () => { this.y += 6; this.paragraph([{ t: '*   *   *' }], { align: 'center' }); this.y += 6; indent = 0; };
+    const sceneBreak = () => { this.y += 6; this.paragraph([{ t: '*   *   *' }], { align: 'center' }); this.y += 6 + PARA_GAP; };
     for (const b of printBlocks(html)) {
       if (b.kind === 'break') { sceneBreak(); continue; }
       const text = b.runs.map(r => r.t).join('').trim();
       if (!/[\p{L}\p{N}]/u.test(text)) { sceneBreak(); continue; }   // lines like "* * *" or "~~~"
       if (b.kind === 'head') {
         if (/^chapter text$/i.test(text) || (title && (norm(title).includes(norm(text)) || norm(text).includes(norm(title))))) continue;
-        this.y += 8; this.paragraph(b.runs.map(r => ({ ...r, b: true })), { align: 'center' }); this.y += 6; indent = 0; continue;
+        this.y += 8; this.paragraph(b.runs.map(r => ({ ...r, b: true })), { align: 'center' }); this.y += 6 + PARA_GAP; continue;
       }
       b.runs[0].t = b.runs[0].t.trimStart();
-      this.paragraph(b.runs, b.kind === 'quote' ? { left: 22, right: 22 } : { indent });
-      indent = INDENT;
+      this.paragraph(b.runs, b.kind === 'quote' ? { left: 22, right: 22 } : {});
+      if (this.y) this.y += PARA_GAP;   // every line starts at the same left edge; paragraphs are separated by a small space
     }
   }
 }
