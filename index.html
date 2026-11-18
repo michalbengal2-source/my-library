@@ -100,6 +100,8 @@
   .warn { color:#b3261e; font-size:.85em; }
   .volinfo h3 { margin:0 0 4px; font:1.15em var(--serif); }
   .volinfo p { margin:4px 0; }
+  .vol.off { opacity:.55; }
+  .pick { display:block; font-weight:bold; margin:4px 0; }
   button.primary { background:var(--red); color:#fff; border-color:var(--red); padding:.5em 1.2em; }
   button:disabled { opacity:.5; }
   .steps li { margin:4px 0; }
@@ -532,7 +534,7 @@ const actions = {
     try { bk = await deriveKey(pw, data.salt); list = await unseal(bk, data.index); }
     catch { return toast('Wrong password for this file'); }
     const added = list.filter(m => !index.some(x => x.id === m.id));
-    for (const m of added) for (const k of ['w:' + m.id, 'c:' + m.id])
+    for (const m of added) for (const k of ['w:' + m.id, 'c:' + m.id, 'p:' + m.id])
       if (data[k]) await put(k, await seal(key, await unseal(bk, data[k])));
     index.push(...added); await saveIndex();
     const bg = data.groups ? await unseal(bk, data.groups) : [];
@@ -541,7 +543,7 @@ const actions = {
   },
   async remove(id) {
     if (!confirm('Delete this work from your library?')) return;
-    await Promise.all([del('w:' + id), del('c:' + id)]);
+    await Promise.all([del('w:' + id), del('c:' + id), del('p:' + id)]);
     index = index.filter(m => m.id !== id); await saveIndex();
     groups.forEach(g => g.ids = g.ids.filter(x => x !== id)); await saveGroups();
     location.hash = '';
@@ -549,13 +551,14 @@ const actions = {
   async volCover(k) {
     const [f] = await pickFiles('image/*');
     if (!f) return;
-    printJob.vols[k].img = await printImage(f); printJob.files = null; renderExport();
+    printJob.vols[k].img = await printImage(f); printJob.files = null; await savePrint(); renderExport();
   },
   async makePrint() {
     const { m, w, vols } = printJob, files = [], safe = s => s.replace(/[\\/:*?"<>|]+/g, ' ').trim();
     const sdoc = new DOMParser().parseFromString(m.summary || '', 'text/html'), paras = [...sdoc.querySelectorAll('p')].map(txt).filter(Boolean);
-    for (const [k, v] of vols.entries()) {
-      $('#printmsg').textContent = `Creating book ${k + 1} of ${vols.length}…`;
+    const chosen = vols.filter(v => v.sel);
+    for (const [k, v] of chosen.entries()) {
+      $('#printmsg').textContent = `Creating book ${k + 1} of ${chosen.length}…`;
       const L = new Layout();
       L.titlePage(m.title, m.author, v.sub);
       w.chapters.slice(v.a, v.b + 1).forEach((c, j) => L.chapter(chName(c, v.a + j), c.body));
@@ -613,6 +616,10 @@ main.addEventListener('change', e => {
     }
     route();
   })();
+  if (e.target.matches('.volok, .volsel')) {
+    printJob.vols[e.target.dataset.k][e.target.matches('.volok') ? 'ok' : 'sel'] = e.target.checked;
+    printJob.files = null; savePrint(); renderExport();
+  }
   if (e.target.matches('.ratesel')) {
     index.find(m => m.id === e.target.dataset.id).rating = +e.target.value || undefined;
     saveIndex(); toast(+e.target.value ? `Rated ${e.target.value}/10` : 'Rating removed');
@@ -1349,11 +1356,12 @@ async function coverPDF({ title, author, summary, pages, img }) {
     img.bytes)} 0 R >>`);
 }
 
-/* Splits chapters into books of about 300–400 pages (never inside a chapter) */
+/* Splits chapters into books (never inside a chapter): aiming at about 400 pages, never under 300,
+   over 450 only when there is no better split (then the reader is asked to approve), and avoiding 500+ */
 function planVolumes(counts) {
   const pre = [0];
   counts.forEach(c => pre.push(pre.at(-1) + c));
-  const cost = p => (p - 350) ** 2 + 1e4 * (Math.max(0, p - 400) + Math.max(0, 300 - p));
+  const cost = p => (p - 400) ** 2 + 1e9 * Math.max(0, 300 - p) + 1e4 * Math.max(0, p - 450) + 1e7 * Math.max(0, p - 500);
   const best = [0], cut = [0];
   for (let i = 1; i <= counts.length; i++) {
     best[i] = Infinity;
@@ -1368,16 +1376,48 @@ function planVolumes(counts) {
 }
 
 /* A cover picture for print: high-resolution JPEG, its size and its average colour */
+/* Print quality: the front cover is 6.25 × 9.25 in with bleed, and Lulu wants 300 pixels per inch */
+const PRINT_PX = [6.25 * 300, 9.25 * 300];
+function enlarge(img, factor) {   // in steps of at most ×2 (much smoother than one big jump), then sharpened
+  let cur = img, w = img.width, h = img.height;
+  const tw = Math.round(w * factor), th = Math.round(h * factor);
+  while (w < tw) {
+    w = Math.min(tw, w * 2); h = Math.min(th, h * 2);
+    const cv = canvas(w, h), c = cv.getContext('2d');
+    c.imageSmoothingQuality = 'high'; c.drawImage(cur, 0, 0, w, h); cur = cv;
+  }
+  sharpen(cur);
+  return cur;
+}
+function sharpen(cv, amount = 0.8) {   // unsharp mask: brings back edges that enlarging blurs
+  const c = cv.getContext('2d'), { width: w, height: h } = cv, img = c.getImageData(0, 0, w, h), d = img.data, src = d.slice();
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = (y * w + x) * 4;
+    for (let k = i; k < i + 3; k++) d[k] = src[k] + amount * (src[k] - (src[k - 4] + src[k + 4] + src[k - 4 * w] + src[k + 4 * w] + 4 * src[k]) / 8);
+  }
+  c.putImageData(img, 0, 0);
+}
 async function printImage(src) {
   const bmp = await createImageBitmap(typeof src === 'string' ? new Blob([unb64(src.split(',')[1])]) : src);
-  const s = Math.min(1, 2000 / bmp.width), cv = canvas(bmp.width * s | 0, bmp.height * s | 0), c = cv.getContext('2d');
-  c.drawImage(bmp, 0, 0, cv.width, cv.height);
-  const px = c.getImageData(0, 0, cv.width, cv.height).data, rgb = [0, 0, 0];
+  const need = Math.max(PRINT_PX[0] / bmp.width, PRINT_PX[1] / bmp.height);   // above 1: too small for a sharp print
+  let cv;
+  if (need > 1) cv = enlarge(bmp, need);
+  else {
+    const s = Math.max(need, Math.min(1, 2400 / bmp.width));
+    cv = canvas(bmp.width * s | 0, bmp.height * s | 0);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+  }
+  const c = cv.getContext('2d'), px = c.getImageData(0, 0, cv.width, cv.height).data, rgb = [0, 0, 0];
   let n = 0;
   for (let i = 0; i < px.length; i += 4 * 97, n++) for (let k = 0; k < 3; k++) rgb[k] += px[i + k];
   const url = cv.toDataURL('image/jpeg', 0.92);
-  return { url, bytes: unb64(url.split(',')[1]), w: cv.width, h: cv.height, rgb: rgb.map(v => v / n) };
+  return { url, bytes: unb64(url.split(',')[1]), w: cv.width, h: cv.height, rgb: rgb.map(v => v / n), from: need > 1 ? [bmp.width, bmp.height] : null };
 }
+
+const savePrint = async () => put('p:' + printJob.m.id, await seal(key, {
+  plan: printJob.vols.map(v => [v.a, v.b]),
+  vols: printJob.vols.map(({ img, ok, sel }) => ({ ok, sel, img: img && { url: img.url, w: img.w, h: img.h, rgb: img.rgb, from: img.from } })),
+}));
 
 /* Export screen: shows the plan, collects a cover for every book, and makes the files only after approval */
 let printJob = null;
@@ -1394,25 +1434,42 @@ async function showExport(id) {
     catch { main.innerHTML = '<p class="center muted">The print fonts could not be loaded. Check that print-fonts.html (and print-fonts-cjk.html) were uploaded next to index.html.</p>'; return; }
     const counts = w.chapters.map((c, j) => { const L = new Layout(); L.chapter(chName(c, j), c.body); return L.pages.length; });
     const plan = planVolumes(counts);
-    printJob = { m, w, counts, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null })) };
-    if (m.cover) printJob.vols[0].img = await printImage(await getCover(id));
+    printJob = { m, w, counts, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null, sel: true })) };
+    const saved = await get('p:' + id).then(x => x && unseal(key, x));   // the setup from last time: covers, choices, approvals
+    if (saved) {
+      printJob.changed = JSON.stringify(saved.plan) !== JSON.stringify(plan);
+      saved.vols.forEach((sv, k) => {
+        const v = printJob.vols[k];
+        if (!v) return;
+        v.sel = sv.sel; v.ok = !printJob.changed && sv.ok;
+        if (sv.img) v.img = { ...sv.img, bytes: unb64(sv.img.url.split(',')[1]) };
+      });
+    }
+    if (m.cover && !printJob.vols[0].img) printJob.vols[0].img = await printImage(await getCover(id));
   }
   renderExport();
 }
 
 function renderExport() {
-  const { m, w, vols, files } = printJob, ready = vols.every(v => v.img);
+  const { m, w, vols, files } = printJob, big = v => volPages(v) > 450, chosen = vols.filter(v => v.sel);
+  const ready = chosen.length && chosen.every(v => v.img && (!big(v) || v.ok));
   document.title = 'Print with Lulu';
   main.innerHTML = `<p><a href="#w/${m.id}/${m.last ?? 0}">← Back to the book</a></p>
     <h2 class="heading">Print with Lulu</h2>
-    <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books of 300–400 pages.` : 'Fits in one book.'}</p>
-    ${vols.map((v, k) => { const p = volPages(v); return `<div class="vol">
+    <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books of about 400 pages.` : 'Fits in one book.'}
+      Your covers and choices here are saved.</p>
+    ${printJob.changed ? '<p class="warn">The work changed since last time, so the split may be different. Check the books and approvals again.</p>' : ''}
+    ${vols.map((v, k) => { const p = volPages(v); return `<div class="vol ${v.sel ? '' : 'off'}">
       <div class="volcover">${v.img ? `<img src="${v.img.url}" alt="">` : '<div class="nocover">No cover yet</div>'}
         <button data-do="volCover" data-arg="${k}">${v.img ? 'Change cover' : 'Upload cover'}</button>
-        ${v.img && v.img.w < 1200 ? '<p class="warn">Low resolution: it may print blurry. A larger picture is better.</p>' : ''}</div>
+        ${v.img?.from ? `<p class="${v.img.from[0] < 700 ? 'warn' : 'muted'}">Enhanced for print from ${v.img.from.join(' × ')} px${
+          v.img.from[0] < 700 ? '. Very small picture: it will look soft. A larger one is better.' : ''}</p>` : ''}</div>
       <div class="volinfo"><h3>${esc(m.title)}${v.sub ? ': ' + v.sub : ''}</h3>
+        ${vols.length > 1 ? `<label class="pick"><input type="checkbox" class="volsel" data-k="${k}" ${v.sel ? 'checked' : ''}> Print this book</label>` : ''}
         <p><b>${p} pages</b> · spine ${(spineWidth(p) / PT).toFixed(2)} in</p>
         <p>Chapters ${v.a + 1}–${v.b + 1}</p>
+        ${big(v) ? `<p class="warn">Longer than 450 pages${p > 500 ? ' and over 500 (a chapter is too long to split it better)' : ''}.</p>
+          <label><input type="checkbox" class="volok" data-k="${k}" ${v.ok ? 'checked' : ''}> I approve ${p} pages</label>` : ''}
         <details><summary>Show chapters</summary><ol start="${v.a + 1}">${w.chapters.slice(v.a, v.b + 1).map((c, j) => `<li>${esc(chName(c, v.a + j))}</li>`).join('')}</ol></details>
       </div></div>`; }).join('')}
     ${files ? `<h2 class="heading">Your files</h2>${files.map(f => `<p><a class="btn" href="${f.url}" download="${esc(f.name)}">⬇ ${esc(f.name)}</a></p>`).join('')}
@@ -1421,7 +1478,8 @@ function renderExport() {
         <li>Upload the <b>interior</b> PDF, then choose <b>Upload your cover</b> and upload the <b>cover</b> PDF of the same book.</li>
         <li>Repeat for every book.</li></ol>`
     : `<p><button class="primary" data-do="makePrint" ${ready ? '' : 'disabled'}>Approve and create the files</button></p>
-      ${ready ? '' : '<p class="muted">Every book needs a cover first.</p>'}<p id="printmsg" class="muted"></p>`}`;
+      ${ready ? '' : `<p class="muted">${!chosen.length ? 'Choose at least one book to print. ' : ''}${chosen.some(v => !v.img) ? 'Every chosen book needs a cover. ' : ''}${
+        chosen.some(v => big(v) && !v.ok) ? 'Approve the page count of the long books.' : ''}</p>`}<p id="printmsg" class="muted"></p>`}`;
 }
 
 
