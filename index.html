@@ -186,7 +186,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.6';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.7';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -236,7 +236,7 @@ const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const chName = (c, i) => c.title || 'Chapter ' + (i + 1);
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 const pref = (k, v) => { try { return v === undefined ? localStorage[k] : (localStorage[k] = v); } catch {} };
-function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 3500); }
+function toast(t, ms = 3500) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, ms); }
 
 function askPassword(msg, cancelable = true, err = '') {
   const d = $('#dlg');
@@ -416,11 +416,17 @@ async function pdfLines(pdf) {
       if (text) lines.push({ text, x: its[0].x, end: Math.max(...its.map(i => i.x + i.w)), y: r.y, size: r.size, page: n, rtl });
     });
   }
+  // chapter headings found line by line, in order (Chapter 1, Chapter 2, …), so a heading is never lost inside a paragraph
+  let next = 1;
+  lines.forEach(l => {
+    const n = l.text.length < 200 && +l.text.match(/^chapter\s*(\d+)\b/i)?.[1];
+    if (n === next || (n > next && n <= next + 3)) { l.head = true; next = n + 1; }
+  });
   // page numbers and running headers or footers: the same text (numbers aside) at the top or bottom of many pages
   const edge = new Map();
   lines.forEach((l, i) => {
     const first = i === 0 || lines[i - 1].page !== l.page, last = i === lines.length - 1 || lines[i + 1].page !== l.page;
-    if (first || last) { l.edge = true; const k = l.text.replace(/\d+/g, '#'); edge.set(k, (edge.get(k) || 0) + 1); }
+    if ((first || last) && !l.head) { l.edge = true; const k = l.text.replace(/\d+/g, '#'); edge.set(k, (edge.get(k) || 0) + 1); }
   });
   const pages = pdf.numPages;
   return lines.filter(l => !(l.edge && (/^(page\s*)?[#\d]+(\s*(of|\/)\s*\d+)?$/i.test(l.text.replace(/\d+/g, '#')) ||
@@ -441,12 +447,12 @@ function pdfParagraphs(lines) {
     // the line before ended early: the first word of this line would have fitted at its end
     const charW = prev && (prev.end - prev.x) / prev.text.length, word = l.text.split(' ')[0].length + 1;
     const short = prev && (prev.rtl ? prev.x - left : right - prev.end) > Math.max(word * charW * 1.6, body * 0.8);
-    const fresh = !prev || !cur || short || Math.abs(l.size - prev.size) > 0.5 ||
+    const fresh = !prev || !cur || short || l.head || prev.head && l.size <= prev.size - 0.5 || Math.abs(l.size - prev.size) > 0.5 ||
       (prev.page === l.page && prev.y - l.y > lead * 1.35) ||
       (prev.page !== l.page && /[.!?…"”’)]$/.test(prev.text) && (prev.rtl ? prev.x - left : right - prev.end) > charW * 3) ||   // ended at the bottom of a page
       (indent && !prev.indent);   // an indented first line, or the start of a quoted block
     l.indent = indent;
-    if (fresh) paras.push(cur = { text: l.text, size: l.size, indent, page: l.page });
+    if (fresh) paras.push(cur = { text: l.text, size: l.size, indent, page: l.page, head: l.head });
     else cur.text += (/-$/.test(cur.text) ? '' : ' ') + l.text;
   });
   return { paras, body };
@@ -460,11 +466,29 @@ async function parsePdf(blob) {
   if (!lines.length) throw new Error('This PDF has no text (it may be scanned pictures)');
   const { paras, body } = pdfParagraphs(lines);
   const P = p => `<p>${esc(p.text)}</p>`, isHead = p => p.size > body * 1.08;
-  const chapterHead = p => p.text.length < 150 && (/^chapter\s+\d+\s*(:.*)?$/i.test(p.text) ||
+  const chapterHead = p => p.head || p.text.length < 150 && (/^chapter\s*\d+\s*(:.*)?$/i.test(p.text) ||
     isHead(p) && /^(chapter|part)\s+\S+|^(prologue|epilogue|interlude|פרק|פרולוג|אפילוג)/i.test(p.text));
   const tagStart = paras.findIndex(p => p.page <= 3 && /^Rating:/.test(p.text));
 
   if (tagStart >= 0) {   // an AO3 download
+    // chapters whose heading wasn't recognised: use the PDF's own bookmarks (AO3's PDFs have one per chapter) to find them
+    const expected = parseInt(paras.slice(0, 80).map(p => p.text).join(' ').match(/Chapters:\s*(\d+)/)?.[1]);
+    if (expected > paras.filter(chapterHead).length) {
+      const flat = [], walk = list => (list || []).forEach(o => { flat.push(o); walk(o.items); });
+      walk(await pdf.getOutline().catch(() => null));
+      for (const o of flat) {
+        const t = o.title?.replace(/\s+/g, ' ').trim();
+        if (!t || /^(preface|afterword|summary|notes)$/i.test(t) || paras.some(p => chapterHead(p) && p.text.startsWith(t))) continue;
+        let page;
+        try { const dest = typeof o.dest === 'string' ? await pdf.getDestination(o.dest) : o.dest; page = (await pdf.getPageIndex(dest[0])) + 1; } catch { continue; }
+        const k = paras.findIndex(p => p.page >= page - 1 && p.page <= page + 1 && p.text.includes(t));
+        const firstHead = paras.findIndex(chapterHead);
+        if (k < 0 || k < firstHead || k <= tagStart || paras.slice(tagStart, k).every(q => !/^(Summary|Notes)$/.test(q.text)) && firstHead < 0) continue;   // not the title in the preface
+        const p = paras[k], at = p.text.indexOf(t), before = p.text.slice(0, at).trim(), after = p.text.slice(at + t.length).trim();
+        paras.splice(k, 1, ...[before && { ...p, text: before, head: false }, { ...p, text: t, head: true, indent: false },
+          after && { ...p, text: after, head: false, indent: false }].filter(Boolean));
+      }
+    }
     let i = 0;
     const take = () => paras[i++], label = t => paras[i]?.text === t;
     const quoted = () => { const out = []; while (i < paras.length && paras[i].indent && !chapterHead(paras[i])) out.push(P(take())); return `<blockquote class="userstuff">${out.join('')}</blockquote>`; };
@@ -501,7 +525,14 @@ async function parsePdf(blob) {
       else blocks.push(P(take()));
     }
     flush();
-    return parseWork(`<div id="preface">${preface}</div><div id="chapters">${chapters}</div>${afterword ? `<div id="afterword">${afterword}</div>` : ''}`);
+    const work = parseWork(`<div id="preface">${preface}</div><div id="chapters">${chapters}</div>${afterword ? `<div id="afterword">${afterword}</div>` : ''}`);
+    const posted = parseInt(work.meta.chapters), found = work.work.chapters.length;
+    if (posted > found) {
+      const nums = new Set(work.work.chapters.map(c => +c.title.match(/^chapter\s*(\d+)/i)?.[1]));
+      const missing = Array.from({ length: posted }, (_, k) => k + 1).filter(k => !nums.has(k));
+      work.note = `found ${found} of ${posted} chapters${missing.length ? ` (missing: ${missing.slice(0, 12).join(', ')}${missing.length > 12 ? '…' : ''})` : ''}`;
+    }
+    return work;
   }
 
   // any other PDF: a book, split at its chapter headings, or else at the bookmarks the PDF has
@@ -624,10 +655,12 @@ async function importFiles(files, id) {
     if (cache.id === meta.id) cache = {};
     if (cover && !old?.cover) await storeCover(meta.id, await imageCanvas(cover)).catch(() => {});
     if (meta.kind === 'book' && !meta.cover) await storeCover(meta.id, textCover(meta.title, meta.author));
+    if (parsed.note) notes.push(`${meta.title}: ${parsed.note}`);
     notes.push(!old ? `Added: ${meta.title}` : added > 0 ? `${meta.title}: ${added} new chapter${added > 1 ? 's' : ''}` : `${meta.title}: no new chapters`);
   }
   await saveIndex();
-  toast(notes.length > 2 ? `${notes.length} works added or updated` : notes.join(' · '));
+  const warn = notes.filter(n => / of \d+ chapters/.test(n));
+  toast(warn.length ? warn.join(' · ') : notes.length > 2 ? `${notes.length} works added or updated` : notes.join(' · '), warn.length ? 15000 : 3500);
   id ? route() : location.hash === '' ? route() : location.hash = '';
 }
 
