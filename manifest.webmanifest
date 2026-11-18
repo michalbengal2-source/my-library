@@ -34,7 +34,9 @@
             ".html",
             ".htm",
             "application/epub+zip",
-            ".epub"
+            ".epub",
+            "application/pdf",
+            ".pdf"
           ]
         }
       ]

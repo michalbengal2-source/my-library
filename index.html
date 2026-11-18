@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <!-- Blocks every outgoing connection except to this app's own address (used only to load the print fonts): no data can reach any other server -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'">
 <meta name="theme-color" content="#990000">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
@@ -186,7 +186,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.3';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.6';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -373,6 +373,168 @@ async function parseEpub(blob) {
   };
 }
 
+/* ---------- Reading a PDF ----------
+   A PDF only keeps where each word is drawn, so the text is rebuilt into lines and paragraphs from the positions and sizes,
+   and an AO3 download is turned back into the same shape as AO3's HTML (tags, summary, notes, chapters), then read like one.
+   The PDF reader (pdf.js by Mozilla, Apache licence) is in pdf-reader.html and is loaded only when a PDF is added. */
+let pdfjs = null;
+async function loadPdfLib() {
+  if (pdfjs) return pdfjs;
+  const r = await fetch('pdf-reader.html');
+  if (!r.ok) throw new Error('pdf-reader.html is missing');
+  const d = JSON.parse(await r.text()), url = code => URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+  pdfjs = await import(url(d.lib));
+  pdfjs.GlobalWorkerOptions.workerPort = new Worker(url(d.worker), { type: 'module' });
+  return pdfjs;
+}
+const RTL_CHARS = /[֐-ࣿיִ-﷿ﹰ-﻿]/g, LTR_CHARS = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/g;
+const most = arr => { const n = new Map(); arr.forEach(v => n.set(v, (n.get(v) || 0) + 1)); return [...n].sort((a, b) => b[1] - a[1])[0]?.[0]; };
+
+async function pdfLines(pdf) {
+  const lines = [];
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const page = await pdf.getPage(n), tc = await page.getTextContent();
+    const items = tc.items.filter(it => it.str?.trim()).map(it => {
+      const [a, b, c, d, x, y] = it.transform, size = Math.round(Math.hypot(c, d) * 10) / 10 || it.height;
+      return { s: it.str, x, y, w: it.width, size };
+    }).sort((p, q) => q.y - p.y || p.x - q.x);
+    const rows = [];
+    for (const it of items) {
+      const row = rows.find(r => Math.abs(r.y - it.y) < Math.min(r.size, it.size) * 0.45);
+      row ? (row.items.push(it), row.size = Math.max(row.size, it.size)) : rows.push({ y: it.y, size: it.size, items: [it] });
+    }
+    rows.sort((p, q) => q.y - p.y).forEach(r => {
+      let its = r.items.sort((p, q) => p.x - q.x);
+      const all = its.map(i => i.s).join(''), rtl = (all.match(RTL_CHARS) || []).length > (all.match(LTR_CHARS) || []).length;
+      let text = '';
+      (rtl ? [...its].reverse() : its).forEach((it, k, arr) => {
+        const prev = arr[k - 1], gap = prev && (rtl ? prev.x - (it.x + it.w) : it.x - (prev.x + prev.w));
+        if (prev && gap > it.size * 0.12 && !/\s$/.test(text) && !/^\s/.test(it.s)) text += ' ';
+        text += it.s;
+      });
+      text = text.replace(/\s+/g, ' ').trim();
+      if (text) lines.push({ text, x: its[0].x, end: Math.max(...its.map(i => i.x + i.w)), y: r.y, size: r.size, page: n, rtl });
+    });
+  }
+  // page numbers and running headers or footers: the same text (numbers aside) at the top or bottom of many pages
+  const edge = new Map();
+  lines.forEach((l, i) => {
+    const first = i === 0 || lines[i - 1].page !== l.page, last = i === lines.length - 1 || lines[i + 1].page !== l.page;
+    if (first || last) { l.edge = true; const k = l.text.replace(/\d+/g, '#'); edge.set(k, (edge.get(k) || 0) + 1); }
+  });
+  const pages = pdf.numPages;
+  return lines.filter(l => !(l.edge && (/^(page\s*)?[#\d]+(\s*(of|\/)\s*\d+)?$/i.test(l.text.replace(/\d+/g, '#')) ||
+    (pages >= 4 && edge.get(l.text.replace(/\d+/g, '#')) >= Math.max(3, pages * 0.3)))));
+}
+
+function pdfParagraphs(lines) {
+  const body = most(lines.flatMap(l => Array(Math.min(20, l.text.length >> 3) + 1).fill(l.size)));
+  const bodyLines = lines.filter(l => l.size === body);
+  const left = most(bodyLines.map(l => Math.round(l.x))), right = Math.max(...bodyLines.map(l => l.end).sort((a, b) => a - b).slice(0, Math.ceil(bodyLines.length * 0.95)));
+  const gaps = bodyLines.slice(1).map((l, i) => bodyLines[i].page === l.page && Math.round(bodyLines[i].y - l.y)).filter(g => g > 0);
+  const lead = most(gaps) || body * 1.3;
+  const paras = [];
+  let cur = null;
+  lines.forEach((l, i) => {
+    const prev = lines[i - 1];
+    const indent = l.rtl ? l.end < right - body : l.x > left + body;               // first-line indent or a quoted block
+    // the line before ended early: the first word of this line would have fitted at its end
+    const charW = prev && (prev.end - prev.x) / prev.text.length, word = l.text.split(' ')[0].length + 1;
+    const short = prev && (prev.rtl ? prev.x - left : right - prev.end) > Math.max(word * charW * 1.6, body * 0.8);
+    const fresh = !prev || !cur || short || Math.abs(l.size - prev.size) > 0.5 ||
+      (prev.page === l.page && prev.y - l.y > lead * 1.35) ||
+      (prev.page !== l.page && /[.!?…"”’)]$/.test(prev.text) && (prev.rtl ? prev.x - left : right - prev.end) > charW * 3) ||   // ended at the bottom of a page
+      (indent && !prev.indent);   // an indented first line, or the start of a quoted block
+    l.indent = indent;
+    if (fresh) paras.push(cur = { text: l.text, size: l.size, indent, page: l.page });
+    else cur.text += (/-$/.test(cur.text) ? '' : ' ') + l.text;
+  });
+  return { paras, body };
+}
+
+async function parsePdf(blob) {
+  const lib = await loadPdfLib();
+  const pdf = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), isEvalSupported: false, disableFontFace: true, useSystemFonts: false }).promise;
+  const info = (await pdf.getMetadata().catch(() => null))?.info || {};
+  const lines = await pdfLines(pdf);
+  if (!lines.length) throw new Error('This PDF has no text (it may be scanned pictures)');
+  const { paras, body } = pdfParagraphs(lines);
+  const P = p => `<p>${esc(p.text)}</p>`, isHead = p => p.size > body * 1.08;
+  const chapterHead = p => p.text.length < 150 && (/^chapter\s+\d+\s*(:.*)?$/i.test(p.text) ||
+    isHead(p) && /^(chapter|part)\s+\S+|^(prologue|epilogue|interlude|פרק|פרולוג|אפילוג)/i.test(p.text));
+  const tagStart = paras.findIndex(p => p.page <= 3 && /^Rating:/.test(p.text));
+
+  if (tagStart >= 0) {   // an AO3 download
+    let i = 0;
+    const take = () => paras[i++], label = t => paras[i]?.text === t;
+    const quoted = () => { const out = []; while (i < paras.length && paras[i].indent && !chapterHead(paras[i])) out.push(P(take())); return `<blockquote class="userstuff">${out.join('')}</blockquote>`; };
+    // preface: everything up to the first chapter, the summary or the notes
+    const pre = [];
+    while (i < paras.length && !chapterHead(paras[i]) && !label('Summary') && !label('Notes')) pre.push(take());
+    const titleP = pre.filter(p => !/^(Rating|Archive Warnings?|Categor(y|ies)|Fandoms?|Relationships?|Characters?|Additional Tags|Language|Series|Collections?|Stats):/.test(p.text))
+      .reduce((a, p) => (!a || p.size > a.size ? p : a), null);
+    const byP = pre.find(p => /^by\s/.test(p.text));
+    const tagText = pre.filter(p => p !== titleP && p !== byP && !/Archive of Our Own/i.test(p.text)).map(p => p.text).join(' ');
+    const parts = tagText.split(/\b(Rating|Archive Warnings?|Categor(?:y|ies)|Fandoms?|Relationships?|Characters?|Additional Tags|Language|Series|Collections?|Stats):\s*/).slice(1);
+    let dl = '';
+    for (let k = 0; k < parts.length; k += 2) dl += `<dt>${esc(parts[k])}:</dt><dd>${esc(parts[k + 1].trim())}</dd>`;
+    let preface = `<h1>${esc(titleP?.text || info.Title || 'Untitled')}</h1><div class="byline">${esc(byP?.text || '')}</div><dl class="tags">${dl}</dl>`;
+    while (label('Summary') || label('Notes')) { const t = take().text; preface += `<p>${t}</p>${quoted()}`; }
+    let chapters = '', afterword = '', inChapter = false;
+    const blocks = [];   // the story text of the current chapter
+    const flush = () => { if (blocks.length || !inChapter) chapters += `<div class="userstuff">${blocks.join('')}</div>`; blocks.length = 0; };
+    while (i < paras.length) {
+      const p = paras[i];
+      if (chapterHead(p)) {
+        if (inChapter || blocks.length) flush();
+        inChapter = true; take();
+        let meta = '';
+        while (/^(Chapter Summary|Chapter Notes)$/.test(paras[i]?.text)) meta += `<p>${take().text}</p>${quoted()}`;
+        if (/^See the end of the chapter for/.test(paras[i]?.text)) take();
+        chapters += `<div class="meta group"><h2 class="heading">${esc(p.text)}</h2>${meta}</div>`;
+      } else if (p.text === 'Chapter End Notes') {
+        flush(); take(); chapters += `<div class="meta group endnotes"><p>Chapter End Notes</p>${quoted()}</div>`;
+      } else if (p.text === 'Afterword') {
+        flush(); take();
+        while (i < paras.length) { const q = take(); if (!/^Please drop by the Archive/i.test(q.text)) afterword += P(q); }
+      } else if (/^See the end of the chapter for/.test(p.text)) take();
+      else blocks.push(P(take()));
+    }
+    flush();
+    return parseWork(`<div id="preface">${preface}</div><div id="chapters">${chapters}</div>${afterword ? `<div id="afterword">${afterword}</div>` : ''}`);
+  }
+
+  // any other PDF: a book, split at its chapter headings, or else at the bookmarks the PDF has
+  const heads = paras.map((p, k) => chapterHead(p) && k).filter(k => k !== false);
+  const chapters = [];
+  const cut = starts => starts.forEach((s, k) => {
+    const part = paras.slice(s, starts[k + 1] ?? paras.length), first = part[0];
+    const titled = first && (chapterHead(first) || isHead(first));
+    chapters.push({ title: titled ? first.text : '', notes: '', body: (titled ? part.slice(1) : part).map(P).join(''), end: '' });
+  });
+  if (heads.length >= 2) cut(heads[0] > 0 ? [0, ...heads] : heads);
+  else {
+    const outline = (await pdf.getOutline().catch(() => null)) || [], starts = [];
+    for (const o of outline) {
+      try {
+        const dest = typeof o.dest === 'string' ? await pdf.getDestination(o.dest) : o.dest;
+        const page = (await pdf.getPageIndex(dest[0])) + 1, k = paras.findIndex(p => p.page >= page);
+        if (k >= 0 && !starts.includes(k)) starts.push(k);
+      } catch {}
+    }
+    starts.sort((a, b) => a - b);
+    if (starts.length >= 2) cut(starts[0] > 0 ? [0, ...starts] : starts); else cut([0]);
+  }
+  if (chapters.length > 1 && !chapters[0].body) chapters.shift();   // the title page on its own
+  const words = paras.reduce((n, p) => n + p.text.split(' ').length, 0);
+  const firstBig = paras.find(p => p.page === 1 && isHead(p));
+  return {
+    meta: { kind: 'book', title: info.Title?.trim() || firstBig?.text || blob.name?.replace(/\.pdf$/i, '') || 'Untitled', author: info.Author?.trim() || '',
+      tags: [], summary: '', words: words.toLocaleString('en'), chapters: chapters.length, date: '', last: null },
+    work: { notes: '', after: '', chapters },
+  };
+}
+
 /* ---------- Covers ---------- */
 const canvas = (width, height) => Object.assign(document.createElement('canvas'), { width, height });
 async function imageCanvas(blob) {
@@ -443,9 +605,14 @@ async function importFiles(files, id) {
   for (const f of files) {
     let parsed;
     try {
-      const isZip = dec.decode(await f.slice(0, 2).arrayBuffer()) === 'PK';   // EPUB books are zip files
-      parsed = isZip ? await parseEpub(f) : parseWork(await f.text());
-    } catch { notes.push(`Couldn't read ${f.name || 'a shared file'}`); continue; }
+      const magic = dec.decode(await f.slice(0, 5).arrayBuffer()), isZip = magic.startsWith('PK');   // EPUB books are zip files
+      if (magic === '%PDF-') { toast(`Reading ${f.name || 'the PDF'}…`); parsed = await parsePdf(f); }
+      else if (!isZip && !/<html|<body|<div/i.test(await f.slice(0, 4096).text()))
+        { notes.push(`${f.name || 'This file'} is not an EPUB, PDF or AO3 HTML file`); continue; }
+      else parsed = isZip ? await parseEpub(f) : parseWork(await f.text());
+    } catch (err) {
+      notes.push(`Couldn't read ${f.name || 'a shared file'}${/^(This PDF|pdf-reader)/.test(err.message) ? ': ' + err.message.replace(/^pdf-reader.*/, 'pdf-reader.html is missing next to index.html')
+        : /\.epub$/i.test(f.name) ? ' (the EPUB may be damaged or locked with DRM)' : ''}`); continue; }
     const { meta, work, cover } = parsed;
     const old = id ? index.find(m => m.id === id) : index.find(m => m.title === meta.title && m.author === meta.author);
     const before = old ? old.count ?? parseInt(old.chapters) : 0, added = old ? work.chapters.length - before : 0;
@@ -503,7 +670,7 @@ const actions = {
     start();
   },
   async add(id) {
-    const files = await pickFiles('.html,.htm,.epub,text/html,application/epub+zip', !id);
+    const files = await pickFiles('', !id);   // no filter: Android often doesn't recognise .epub files and greys them out
     if (files.length) importFiles(files, id);
   },
   async cover(id) {
@@ -621,6 +788,18 @@ main.addEventListener('change', e => {
     v[field] = e.target.checked;
     if (field === 'printed' && v.printed) v.sel = false;   // a printed book is not printed again by default
     printJob.files = null; savePrint(); renderExport();
+  }
+  if (e.target.matches('#volcount')) {
+    const val = e.target.value;
+    printJob.mode = val === 'auto' || val === 'manual' ? val : +val;
+    replan();
+  }
+  if (e.target.matches('.volend')) {
+    const k = +e.target.dataset.k, v = printJob.vols[k], next = printJob.vols[k + 1];
+    v.b = +e.target.value; next.a = v.b + 1;
+    v.ok = next.ok = false;
+    printJob.mode = 'manual'; printJob.changed = null; printJob.files = null;
+    savePrint(); renderExport();
   }
   if (e.target.matches('.ratesel')) {
     index.find(m => m.id === e.target.dataset.id).rating = +e.target.value || undefined;
@@ -854,7 +1033,7 @@ function showList() {
     const list = filtered();
     $('#out').innerHTML = `<h2 class="heading">${list.length} Work${list.length === 1 ? '' : 's'} in My Library</h2>
       <ol class="works">${list.map(m => blurb(m)).join('')}</ol>` +
-      (index.length ? '' : '<p class="center muted">Your library is empty. Tap "+ Add" and choose an HTML file downloaded from AO3, or an EPUB book.</p>');
+      (index.length ? '' : '<p class="center muted">Your library is empty. Tap "+ Add" and choose an HTML or PDF file downloaded from AO3, or an EPUB or PDF book.</p>');
   });
 }
 
@@ -1372,6 +1551,46 @@ function planVolumes(counts) {
   return vols;
 }
 
+/* Splits chapters into exactly k books, as even in pages as the chapter breaks allow */
+function planExact(counts, k) {
+  const n = counts.length, pre = [0];
+  k = Math.max(1, Math.min(k, n));
+  counts.forEach(c => pre.push(pre.at(-1) + c));
+  const target = pre[n] / k + 2, best = [[0]], cut = [[0]];
+  for (let t = 1; t <= k; t++) {
+    best[t] = []; cut[t] = [];
+    for (let i = t; i <= n - (k - t); i++) {
+      best[t][i] = Infinity;
+      for (let j = t - 1; j < i; j++) {
+        if (best[t - 1][j] === undefined) continue;
+        const c = best[t - 1][j] + (pre[i] - pre[j] + 2 - target) ** 2;
+        if (c < best[t][i]) { best[t][i] = c; cut[t][i] = j; }
+      }
+    }
+  }
+  const vols = [];
+  for (let t = k, i = n; t > 0; i = cut[t][i], t--) vols.unshift([cut[t][i], i - 1]);
+  return vols;
+}
+
+/* The whole plan: books marked printed (and all before them) stay as they are; the rest is split
+   automatically, into a chosen number of books, or kept as edited by hand ('manual') */
+function makePlan(counts, mode, oldPlan, locked) {
+  const fixed = (oldPlan || []).slice(0, locked), start = fixed.length ? fixed.at(-1)[1] + 1 : 0;
+  if (start > counts.length) return makePlan(counts, mode, null, 0);   // the work got shorter than what was printed
+  const rest = counts.slice(start);
+  if (!rest.length) return fixed;
+  let tail;
+  if (mode === 'manual') {
+    tail = (oldPlan || []).slice(locked).map(([a, b]) => [a - start, b - start]);
+    const ok = tail.length && tail.every(([a, b], k) => a === (k ? tail[k - 1][1] + 1 : 0) && b >= a) && tail.at(-1)[1] <= rest.length - 1;
+    if (ok) tail.at(-1)[1] = rest.length - 1;   // new chapters go to the last book
+    else tail = null;
+  } else if (typeof mode === 'number') tail = planExact(rest, mode - fixed.length);
+  if (!tail) tail = planVolumes(rest);
+  return [...fixed, ...tail.map(([a, b]) => [a + start, b + start])];
+}
+
 /* A cover picture for print: high-resolution JPEG, its size and its average colour */
 /* Print quality: the front cover is 6.25 × 9.25 in with bleed, and Lulu wants 300 pixels per inch */
 const PRINT_PX = [6.25 * 300, 9.25 * 300];
@@ -1432,6 +1651,7 @@ async function printImage(src) {
 }
 
 const savePrint = async () => put('p:' + printJob.m.id, await seal(key, {
+  mode: printJob.mode,
   plan: printJob.vols.map(v => [v.a, v.b]),
   vols: printJob.vols.map(({ img, ok, sel, printed }) => ({ ok, sel, printed, img: img && { url: img.url, w: img.w, h: img.h, rgb: img.rgb, from: img.from } })),
 }));
@@ -1451,14 +1671,10 @@ async function showExport(id) {
     catch { main.innerHTML = '<p class="center muted">The print fonts could not be loaded. Check that print-fonts.html (and print-fonts-cjk.html) were uploaded next to index.html.</p>'; return; }
     const counts = w.chapters.map((c, j) => { const L = new Layout(); L.chapter(chName(c, j), c.body); return L.pages.length; });
     const saved = await get('p:' + id).then(x => x && unseal(key, x));   // the setup from last time: covers, choices, approvals
-    let plan = planVolumes(counts);
     // Books marked "printed" are locked exactly as they were (with every book before them); everything after them is split again
-    const lastPrinted = saved ? saved.vols.map(v => v.printed).lastIndexOf(true) : -1;
-    if (lastPrinted >= 0) {
-      const fixed = saved.plan.slice(0, lastPrinted + 1), start = fixed.at(-1)[1] + 1;
-      if (start <= counts.length) plan = [...fixed, ...(start < counts.length ? planVolumes(counts.slice(start)).map(([a, b]) => [a + start, b + start]) : [])];
-    }
-    printJob = { m, w, counts, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null, sel: true })) };
+    const lastPrinted = saved ? saved.vols.map(v => v.printed).lastIndexOf(true) : -1, mode = saved?.mode ?? 'auto';
+    const plan = makePlan(counts, mode, saved?.plan, lastPrinted + 1);
+    printJob = { m, w, counts, mode, files: null, vols: plan.map(([a, b], k) => ({ a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: null, sel: true })) };
     if (saved) {
       printJob.changed = plan.map((r, k) => JSON.stringify(r) !== JSON.stringify(saved.plan[k]) && k + 1).filter(Boolean);
       saved.vols.forEach((sv, k) => {
@@ -1474,14 +1690,38 @@ async function showExport(id) {
   renderExport();
 }
 
+/* Splits again after the number of books changed; covers, choices and locks stay with Book 1, Book 2, … */
+function replan() {
+  const old = printJob.vols, locked = old.map(v => v.printed).lastIndexOf(true) + 1;
+  const plan = makePlan(printJob.counts, printJob.mode, old.map(v => [v.a, v.b]), locked);
+  printJob.vols = plan.map(([a, b], k) => {
+    const o = old[k] || { img: null, sel: true };
+    return { a, b, sub: plan.length > 1 ? `Book ${k + 1}` : '', img: o.img, sel: o.sel, printed: o.printed && k < locked, ok: o.ok && o.a === a && o.b === b };
+  });
+  printJob.changed = null; printJob.files = null;
+  savePrint(); renderExport();
+}
+const lockedCount = () => printJob.vols.map(v => v.printed).lastIndexOf(true) + 1;
+const MAX_PAGES = 800;   // Lulu's limit for a 6 × 9 paperback
+
 function renderExport() {
-  const { m, w, vols, files } = printJob, big = v => volPages(v) > 450, chosen = vols.filter(v => v.sel);
-  const ready = chosen.length && chosen.every(v => v.img && (!big(v) || v.ok));
+  const { m, w, vols, files, counts } = printJob, chosen = vols.filter(v => v.sel), locked = lockedCount();
+  const big = v => { const p = volPages(v); return p > 450 || (vols.length > 1 && p < 300); };   // needs the reader's approval
+  const ready = chosen.length && chosen.every(v => v.img && volPages(v) <= MAX_PAGES && (!big(v) || v.ok));
+  const lockedEnd = locked ? vols[locked - 1].b + 1 : 0, maxBooks = Math.min(20, locked + counts.length - lockedEnd);
+  const minBooks = locked + (lockedEnd < counts.length ? 1 : 0);
+  const countSel = `<label>Number of books: <select id="volcount">
+      <option value="auto" ${printJob.mode === 'auto' ? 'selected' : ''}>Automatic (about 400 pages each)</option>
+      ${printJob.mode === 'manual' ? '<option value="manual" selected>Custom (edited by hand)</option>' : ''}
+      ${Array.from({ length: maxBooks - minBooks + 1 }, (_, i) => minBooks + i).map(n =>
+        `<option value="${n}" ${printJob.mode === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
   document.title = 'Print with Lulu';
   main.innerHTML = `<p><a href="#w/${m.id}/${m.last ?? 0}">← Back to the book</a></p>
     <h2 class="heading">Print with Lulu <span class="muted">(app version ${APP_VERSION})</span></h2>
-    <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books of about 400 pages.` : 'Fits in one book.'}
+    <p class="muted">6 × 9 in paperback. ${vols.length > 1 ? `Split at chapter breaks into ${vols.length} books${printJob.mode === 'auto' ? ' of about 400 pages' : ''}.` : 'One book.'}
       Your covers and choices here are saved.</p>
+    <p>${countSel}</p>
+    <p class="muted">Choose a number and the chapters are shared out as evenly as possible. You can also move where each book ends below.</p>
     ${printJob.changed?.length ? `<p class="warn">The split changed since last time for: ${printJob.changed.map(k => 'Book ' + k).join(', ')}. Books marked as printed never change.</p>` : ''}
     ${vols.map((v, k) => { const p = volPages(v); return `<div class="vol ${v.sel ? '' : 'off'}">
       <div class="volcover">${v.img ? `<img src="${v.img.url}" alt="">` : '<div class="nocover">No cover yet</div>'}
@@ -1494,7 +1734,11 @@ function renderExport() {
         ${v.printed ? '<p class="muted">🔒 Locked: its chapters stay exactly as printed, whatever changes later.</p>' : ''}
         <p><b>${p} pages</b> · spine ${(spineWidth(p) / PT).toFixed(2)} in</p>
         <p>Chapters ${v.a + 1}–${v.b + 1}</p>
-        ${big(v) ? `<p class="warn">Longer than 450 pages${p > 500 ? ' and over 500 (a chapter is too long to split it better)' : ''}.</p>
+        ${k >= locked && k < vols.length - 1 ? `<label>Ends after chapter <select class="volend" data-k="${k}">${
+          Array.from({ length: vols[k + 1].b - v.a }, (_, i) => v.a + i).map(j =>
+            `<option value="${j}" ${j === v.b ? 'selected' : ''}>${j + 1}${j === v.b ? '' : ` (${volPages({ a: v.a, b: j })} / ${volPages({ a: j + 1, b: vols[k + 1].b })} pages)`}</option>`).join('')}</select></label>` : ''}
+        ${p > MAX_PAGES ? `<p class="warn">Over ${MAX_PAGES} pages: Lulu can't print a book this long. Choose more books or move the chapter breaks.</p>` : ''}
+        ${big(v) ? `<p class="warn">${p > 450 ? `Longer than 450 pages${p > 500 ? ' and over 500' : ''}` : 'Shorter than 300 pages'}.</p>
           <label><input type="checkbox" class="volok" data-k="${k}" ${v.ok ? 'checked' : ''}> I approve ${p} pages</label>` : ''}
         <details><summary>Show chapters</summary><ol start="${v.a + 1}">${w.chapters.slice(v.a, v.b + 1).map((c, j) => `<li>${esc(chName(c, v.a + j))}</li>`).join('')}</ol></details>
       </div></div>`; }).join('')}
@@ -1505,7 +1749,8 @@ function renderExport() {
         <li>Repeat for every book.</li></ol>`
     : `<p><button class="primary" data-do="makePrint" ${ready ? '' : 'disabled'}>Approve and create the files</button></p>
       ${ready ? '' : `<p class="muted">${!chosen.length ? 'Choose at least one book to print. ' : ''}${chosen.some(v => !v.img) ? 'Every chosen book needs a cover. ' : ''}${
-        chosen.some(v => big(v) && !v.ok) ? 'Approve the page count of the long books.' : ''}</p>`}<p id="printmsg" class="muted"></p>`}`;
+        chosen.some(v => volPages(v) > MAX_PAGES) ? `A book is over ${MAX_PAGES} pages. ` : ''}${
+        chosen.some(v => big(v) && !v.ok) ? 'Approve the page count of the books marked in red.' : ''}</p>`}<p id="printmsg" class="muted"></p>`}`;
 }
 
 
