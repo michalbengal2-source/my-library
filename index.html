@@ -151,6 +151,17 @@
   dialog input { width:100%; font-size:1.3rem; padding:8px; margin:8px 0; }
   dialog menu { display:flex; gap:8px; padding:0; margin:8px 0 0; }
   #dlg-err { color:#d33; min-height:1em; margin:0; }
+  button.link { background:none; border:0; box-shadow:none; color:var(--red); text-decoration:underline; padding:6px; min-width:0; }
+  dialog menu button.link { background:none; border:0; color:var(--red); text-decoration:underline; padding:0; margin-inline-start:auto; }
+  .intro { max-width:560px; margin:0 auto; padding:28px 18px 20px; min-height:80vh; display:flex; flex-direction:column; }
+  .intro .slide { flex:1; }
+  .intro h2 { color:var(--red); font-size:1.5rem; margin:10px 0 16px; }
+  .intro p, .intro li { font-size:1.05rem; line-height:1.55; }
+  .intro .big { font-size:2.6rem; margin:0; }
+  .intro .dots { text-align:center; letter-spacing:6px; color:#bbb; margin:14px 0; }
+  .intro .dots b { color:var(--red); }
+  .intro .nav { display:flex; justify-content:space-between; gap:10px; }
+  .code { font:bold 1.1rem monospace; letter-spacing:1px; background:#f3f3f3; border:2px dashed var(--red); border-radius:8px; padding:14px; text-align:center; margin:16px 0; user-select:all; word-break:break-all; }
   #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 18px; border-radius:20px; z-index:9; }
 
   /* Reading position: thin light-gray marker on the right edge, never catches taps */
@@ -180,13 +191,13 @@
     <p id="dlg-msg"></p>
     <input id="dlg-pw" type="password" autocomplete="current-password">
     <p id="dlg-err"></p>
-    <menu><button value="ok">OK</button><button value="" id="dlg-cancel">Cancel</button></menu>
+    <menu><button value="ok">OK</button><button value="" id="dlg-cancel">Cancel</button><button value="forgot" id="dlg-forgot" class="link" hidden>Forgot password?</button></menu>
   </form>
 </dialog>
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.12';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.13';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -238,13 +249,82 @@ const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit
 const pref = (k, v) => { try { return v === undefined ? localStorage[k] : (localStorage[k] = v); } catch {} };
 function toast(t, ms = 3500) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, ms); }
 
-function askPassword(msg, cancelable = true, err = '') {
+const FORGOT = Symbol('forgot');
+// opts.forgot: show "Forgot password?" (returns FORGOT); opts.text: visible text instead of a hidden password
+function askPassword(msg, cancelable = true, err = '', opts = {}) {
   const d = $('#dlg');
   $('#dlg-msg').textContent = msg; $('#dlg-err').textContent = err;
-  $('#dlg-pw').value = ''; $('#dlg-cancel').hidden = !cancelable; d.returnValue = '';
+  $('#dlg-pw').value = ''; $('#dlg-pw').type = opts.text ? 'text' : 'password';
+  $('#dlg-cancel').hidden = !cancelable; $('#dlg-forgot').hidden = !opts.forgot; d.returnValue = '';
   d.oncancel = e => cancelable || e.preventDefault();
   d.showModal();
-  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : null));
+  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : d.returnValue === 'forgot' ? FORGOT : null));
+}
+
+/* ---------- Recovery code ----------
+   The password itself is kept a second time, locked with a random recovery code that only the reader has (written down).
+   With the code the library opens and a new password can be chosen; without password or code, nobody can open it. */
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const newCode = () => [...crypto.getRandomValues(new Uint8Array(25))].map(b => CODE_CHARS[b & 31]).join('').match(/.{5}/g).join('-');
+const normCode = c => c.toUpperCase().replace(/[^A-Z0-9]/g, '').match(/.{1,5}/g)?.join('-') || '';
+async function setRecovery(pw, code = newCode()) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), sealed = await seal(await deriveKey(code, salt), pw);
+  const out = new Uint8Array(16 + sealed.length); out.set(salt); out.set(sealed, 16);
+  await put('rec', out);
+  return code;
+}
+async function passwordFromCode(code) {
+  const rec = await get('rec');
+  return unseal(await deriveKey(normCode(code), rec.slice(0, 16)), rec.slice(16));
+}
+// Locks everything again with a new password, in one step (all or nothing)
+async function rekey(pw) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), nk = await deriveKey(pw, salt), all = await entries(), out = {};
+  for (const [k, v] of Object.entries(all)) if (/^(index$|groups$|[wcp]:)/.test(k)) out[k] = await seal(nk, await unseal(key, v));
+  out.salt = salt;
+  await store('readwrite', st => { let r; for (const k in out) r = st.put(out[k], k); return r; });
+  key = nk;
+}
+async function newPassword(msg) {
+  for (let err = ''; ;) {
+    const pw = await askPassword(msg, false, err);
+    if (!pw || pw.length < 4) { err = 'At least 4 characters'; continue; }
+    if (await askPassword('Type the password again to confirm', false) === pw) return pw;
+    err = "Passwords didn't match, try again";
+  }
+}
+// Shows the recovery code until the reader confirms they kept it
+function showCode(code, title = 'Your recovery code') {
+  document.body.classList.remove('open');
+  main.innerHTML = `<div class="intro"><div class="slide">
+    <h2>${title}</h2>
+    <p>If you ever forget your password, this code is the <b>only</b> way to open your library. Nobody else has it, not even the app's creator.</p>
+    <div class="code">${code}</div>
+    <p>Write it down on paper or save it somewhere safe outside this phone (for example a note in your email). Keep it private: with it, anyone holding your phone or backup file could open the library.</p>
+    <p class="muted">You can make a new code any time in ⚙ Settings.</p></div>
+    <p><button id="copycode">Copy the code</button></p>
+    <p><button id="codeok">I saved it, continue</button></p></div>`;
+  $('#copycode').onclick = () => navigator.clipboard?.writeText(code).then(() => toast('Copied'), () => toast("Couldn't copy, please write it down"));
+  return new Promise(ok => $('#codeok').onclick = () => { document.body.classList.add('open'); ok(); });
+}
+async function recover() {
+  if (!await get('rec')) {
+    alert("This library has no recovery code, so it can only be opened with its password. If you have a backup file, you can restore it on a new library, but it also needs the password it was made with.");
+    return false;
+  }
+  for (let err = ''; ;) {
+    const code = await askPassword('Enter your recovery code', true, err, { text: true });
+    if (code === null) return false;
+    let pw;
+    try { pw = await passwordFromCode(code); } catch { err = "That code doesn't match, check it and try again"; continue; }
+    const salt = await get('salt'), k = await deriveKey(pw, salt), g = await get('groups');
+    index = await unseal(k, await get('index')); groups = g ? await unseal(k, g) : []; key = k;
+    const npw = await newPassword('Choose a new password');
+    toast('Saving your new password…');
+    await rekey(npw); await setRecovery(npw, normCode(code));   // the same recovery code keeps working
+    toast('New password saved. Your recovery code stays the same.', 6000);
+    return true;
+  }
 }
 async function saveFile(blob, name) {
   if (!window.Native) {
@@ -624,7 +704,8 @@ async function start() {
   const salt = await get('salt');
   if (!salt) return showWelcome();
   for (let err = ''; !key;) {
-    const pw = await askPassword('Enter your password to open the library', false, err);
+    const pw = await askPassword('Enter your password to open the library', false, err, { forgot: true });
+    if (pw === FORGOT) { if (await recover()) break; err = ''; continue; }
     try {
       const k = await deriveKey(pw || '', salt), g = await get('groups');
       index = await unseal(k, await get('index')); groups = g ? await unseal(k, g) : []; key = k;
@@ -732,13 +813,15 @@ const actions = {
   },
   size(arg) { const [k, d] = arg.split(','); pref(k, Math.min(28, Math.max(10, size(k) + +d))); applySizes(); if (location.hash === '#settings') route(); },
   async create() {
-    const pw = await askPassword('Choose a password (at least 4 characters). If you forget it, the library cannot be recovered.');
+    const pw = await askPassword('Choose a password (at least 4 characters). Next you will get a recovery code, in case you forget it.');
     if (!pw) return;
     if (pw.length < 4) return toast('Password is too short');
     if (await askPassword('Type the password again to confirm') !== pw) return toast("Passwords don't match");
     const salt = crypto.getRandomValues(new Uint8Array(16));
     key = await deriveKey(pw, salt); index = [];
-    await put('salt', salt); await saveIndex(); enter();
+    await put('salt', salt); await saveIndex();
+    await showCode(await setRecovery(pw));
+    enter();
   },
   async restore() {
     const [f] = await pickFiles('.json,application/json');
@@ -760,6 +843,25 @@ const actions = {
     await del('c:' + id); delete covers[id];
     index.find(m => m.id === id).cover = false; await saveIndex(); route();
   },
+  async newCode() {
+    const pw = await askPassword('Enter your password to make a new recovery code (the old one will stop working)');
+    if (!pw) return;
+    try { await deriveKey(pw, await get('salt')).then(async k => unseal(k, await get('index'))); } catch { return toast('Wrong password'); }
+    await showCode(await setRecovery(pw), 'Your new recovery code');
+    route();
+  },
+  async changePw() {
+    const old = await askPassword('Enter your current password');
+    if (!old) return;
+    try { await deriveKey(old, await get('salt')).then(async k => unseal(k, await get('index'))); } catch { return toast('Wrong password'); }
+    const npw = await newPassword('Choose a new password');
+    toast('Saving your new password…');
+    await rekey(npw);
+    await showCode(await setRecovery(npw), 'Your new recovery code');
+    route();
+  },
+  introAgain: () => showIntro(showWelcome),
+  intro: () => showIntro(() => location.hash === '#settings' ? route() : location.hash = 'settings'),
   async backup() {
     toast('Preparing backup…');
     const data = Object.fromEntries(Object.entries(await entries()).map(([k, v]) => [k, b64(v)]));
@@ -936,12 +1038,41 @@ addEventListener('scroll', () => {
 }, { passive: true });
 addEventListener('resize', updatePos);
 
+const INTRO = [
+  ['📚', 'Welcome to My Library', `<p>My Library is a personal archive for the fanfics you love.</p>
+    <p>It was made after the archive went down, and readers found out they had no copy of the stories they loved and nowhere to keep them.
+    My Library keeps your own copy, so your favourite stories stay with you.</p>`],
+  ['🔒', 'Private by design', `<p>My Library doesn't send anything anywhere. There are no accounts, no servers and no tracking.</p>
+    <p>Every fic you add is saved <b>only on this phone</b>, locked with your password. Nobody else can see your library, not even the app's creator.</p>`],
+  ['⬇️', 'Adding fics', `<p>Because the app never goes online, you add the fics yourself:</p>
+    <ol><li>Open the fic on AO3.</li><li>Tap <b>Download</b> and choose <b>HTML</b> (EPUB and PDF work too).</li>
+    <li>In My Library tap <b>+ Add</b> and choose the file, or share the file to My Library.</li></ol>`],
+  ['🔄', 'Keeping fics up to date', `<p>Nothing updates by itself.</p>
+    <p>When a fic gets new chapters, download its file again from AO3, open the fic in My Library and tap <b>Update</b>.
+    Your reading place, cover and rating are kept.</p>`],
+  ['🔑', 'Your password', `<p>Your password locks the library. When you create it, you'll get a <b>recovery code</b>: write it down.
+    It's the only way back in if you forget the password.</p>
+    <p>Make a backup file from time to time (⚙ Settings). It's also how you move your library to a new phone.</p>`],
+];
+function showIntro(done, i = 0) {
+  const [icon, title, body] = INTRO[i], last = i === INTRO.length - 1;
+  main.innerHTML = `<div class="intro"><div class="slide"><p class="big">${icon}</p><h2>${title}</h2>${body}</div>
+    <p class="dots">${INTRO.map((_, k) => k === i ? '<b>●</b>' : '●').join('')}</p>
+    <div class="nav"><button id="ib" ${i ? '' : 'style="visibility:hidden"'}>Back</button>
+      ${last ? '' : '<button id="is" class="link">Skip</button>'}<button id="in">${last ? 'Start' : 'Next'}</button></div></div>`;
+  $('#ib').onclick = () => showIntro(done, i - 1);
+  $('#in').onclick = () => last ? (pref('intro', '1'), done()) : showIntro(done, i + 1);
+  if ($('#is')) $('#is').onclick = () => { pref('intro', '1'); done(); };
+  scrollTo(0, 0);
+}
 function showWelcome() {
+  if (!pref('intro')) return showIntro(showWelcome);
   main.innerHTML = `<div class="center">
     <h2>My Library</h2>
     <p class="muted">Everything is stored encrypted on this phone only. Nothing is ever sent anywhere.</p>
     <button data-do="create">Create a new library</button>
-    <button data-do="restore">Restore from a backup file</button></div>`;
+    <button data-do="restore">Restore from a backup file</button>
+    <p><button class="link" data-do="introAgain">How My Library works</button></p></div>`;
 }
 
 /* AO3 "required tags" squares: rating, category, warnings, completion */
@@ -1266,7 +1397,10 @@ function upNext(m) {
 
 function showSettings() {
   document.title = 'Settings';
-  main.innerHTML = `<h2 class="heading">Backup &amp; moving to another phone</h2>
+  main.innerHTML = `<h2 class="heading">Password &amp; recovery code</h2>
+    <p id="recnote" class="muted"></p>
+    <p><button data-do="newCode">Make a new recovery code</button> <button data-do="changePw">Change password</button></p>
+    <h2 class="heading">Backup &amp; moving to another phone</h2>
     <p>The backup file is encrypted with your password, so it can't be read without it. Send it to yourself any way you like
        (cable, Drive, WhatsApp), then on the new phone open the app and choose "Restore from a backup file".</p>
     <p><button data-do="backup">Create a backup file</button></p>
@@ -1274,7 +1408,12 @@ function showSettings() {
     <h2 class="heading">Text size</h2>
     ${[['ls', 'Works list &amp; bookshelf'], ['fs', 'Reading']].map(([k, l]) =>
       `<p>${l}: <button data-do="size" data-arg="${k},-1">A−</button> <b>${size(k)}</b> <button data-do="size" data-arg="${k},1">A+</button></p>`).join('')}
+    <h2 class="heading">About</h2>
+    <p><button data-do="intro">How My Library works</button></p>
     <p class="muted">${index.length} works in your library · auto-locks after 5 minutes in the background · app version ${APP_VERSION}</p>`;
+  get('rec').then(r => { const n = $('#recnote'); if (n) n.innerHTML = r
+    ? 'If you forget your password, the recovery code you saved opens the library ("Forgot password?" on the lock screen).'
+    : '<b style="color:var(--red)">This library has no recovery code yet.</b> Make one now, so a forgotten password doesn\'t lock you out forever.'; });
 }
 
 /* ---------- Print-ready files for Lulu (6 × 9 in paperback), made entirely on the phone ---------- */
