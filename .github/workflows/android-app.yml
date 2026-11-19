@@ -53,15 +53,15 @@ jobs:
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           if [ "$SIGN" = no ]; then gradle assembleDebug --no-daemon --stacktrace; exit 0; fi
           gradle assembleRelease bundleRelease --no-daemon --stacktrace
-          cp app/build/outputs/apk/release/app-release.apk ../MyLibrary.apk
-          cp app/build/outputs/bundle/release/app-release.aab ../MyLibrary-GooglePlay.aab
+          cp app/build/outputs/apk/release/app-release.apk ../MyArchive.apk
+          cp app/build/outputs/bundle/release/app-release.aab ../MyArchive-GooglePlay.aab
 
       - name: Publish the download
         if: env.SIGN == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "app-${{ github.run_number }}" MyLibrary.apk MyLibrary-GooglePlay.aab \
-            --title "My Library $VERSION_NAME (Android)" \
-            --notes "Install MyLibrary.apk on the phone. MyLibrary-GooglePlay.aab is only for uploading to Google Play." \
+          gh release create "app-${{ github.run_number }}" MyArchive.apk MyArchive-GooglePlay.aab \
+            --title "My Archive $VERSION_NAME (Android)" \
+            --notes "Install MyArchive.apk on the phone. MyArchive-GooglePlay.aab is only for uploading to Google Play." \
             --latest
