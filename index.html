@@ -274,7 +274,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.21';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.22';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -808,6 +808,7 @@ function enter() {
   restoreY = p.y;
   if ((p.h || '') !== location.hash) location.hash = p.h || ''; else route();
   importShared();
+  joinDoubles().then(n => { if (n) { toast(`${n} doubled fic${n > 1 ? 's were' : ' was'} joined into one`, 5000); route(); } });
 }
 
 /* Last screen and scroll position. Only a random work id and a number are kept, nothing readable. */
@@ -843,7 +844,7 @@ async function importFiles(files, id) {
       notes.push(`Couldn't read ${f.name || 'a shared file'}${/^(This PDF|pdf-reader)/.test(err.message) ? ': ' + err.message.replace(/^pdf-reader.*/, 'pdf-reader.html is missing next to index.html')
         : /\.epub$/i.test(f.name) ? ' (the EPUB may be damaged or locked with DRM)' : ''}`); continue; }
     const { meta, work, cover } = parsed;
-    const old = id ? index.find(m => m.id === id) : index.find(m => m.title === meta.title && m.author === meta.author);
+    const old = id ? index.find(m => m.id === id) : index.find(m => sameWork(m, meta));
     const before = old ? old.count ?? parseInt(old.chapters) : 0, added = old ? work.chapters.length - before : 0;
     Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, readAt: old?.readAt, cover: old?.cover,
       next: old?.next, rating: old?.rating, kudos: old?.kudos, hits: old?.hits, added: old?.added || Date.now(), count: work.chapters.length,
@@ -865,7 +866,9 @@ async function importFiles(files, id) {
 /* Two copies of the same fic (same title and author, e.g. one from a backup): joined into `keep`, which gets
    the text with more chapters, the most recent reading place, and anything only the other copy has (rating, kudos, cover…).
    read(prefix) gives the other copy's decrypted 'w:', 'c:' or 'p:' entry. */
-const sameWork = (a, b) => a.id === b.id || (a.title === b.title && a.author === b.author && (a.kind === 'book') === (b.kind === 'book'));
+// same fic even if the copies came from different files (HTML, EPUB, PDF): case, spaces, punctuation and a leading "by" don't matter
+const workKey = m => norm(m.title || '') + '|' + norm((m.author || '').replace(/^\s*by\s+/i, ''));
+const sameWork = (a, b) => a.id === b.id || workKey(a) === workKey(b);
 async function joinWorks(keep, other, read) {
   const count = m => m.count ?? (parseInt(m.chapters) || 0);
   if (count(other) > count(keep)) {
@@ -880,6 +883,22 @@ async function joinWorks(keep, other, read) {
   if (other.added && (!keep.added || other.added < keep.added)) keep.added = other.added;
   if (!keep.cover && other.cover) { const c = await read('c:'); if (c) { await put('c:' + keep.id, await seal(key, c)); keep.cover = true; } }
   if (!await get('p:' + keep.id)) { const pj = await read('p:'); if (pj) await put('p:' + keep.id, await seal(key, pj)); }
+}
+
+/* Doubles are never kept: whenever the archive opens (and after adding works) copies of the same fic are joined into one */
+async function joinDoubles() {
+  let n = 0;
+  for (let i = 0; i < index.length; i++) for (let j = index.length - 1; j > i; j--) {
+    const a = index[i], b = index[j];
+    if (a.id === b.id) { index.splice(j, 1); n++; continue; }   // the same entry listed twice
+    if (!sameWork(a, b)) continue;
+    await joinWorks(a, b, async p => { const v = await get(p + b.id); return v && unseal(key, v); });
+    await Promise.all([del('w:' + b.id), del('c:' + b.id), del('p:' + b.id)]);
+    groups.forEach(g => g.ids = [...new Set(g.ids.map(x => x === b.id ? a.id : x))]);
+    index.splice(j, 1); n++;
+  }
+  if (n) { await saveIndex(); await saveGroups(); }
+  return n;
 }
 
 /* Files shared into the app from another app (e.g. Downloads → Share → My Library) wait in a
@@ -1040,6 +1059,7 @@ const actions = {
       for (const p of ['w:', 'c:', 'p:']) { const v = await read(p); if (v !== undefined) await put(p + m.id, await seal(key, v)); }
       index.push(m); idMap[m.id] = m.id; added++;
     }
+    await joinDoubles();   // in case the backup itself had doubles
     await saveIndex();
     const bg = data.groups ? await unseal(bk, data.groups) : [];
     for (const g of bg) {   // collections: same collection (or same name) gets the works joined, without doubles
@@ -1048,19 +1068,6 @@ const actions = {
     }
     await saveGroups();
     toast(`${added} works added${joined ? `, ${joined} already here (joined, not doubled)` : ''}`, 5000); route();
-  },
-  async dedupe() {   // fics that ended up in the archive twice: joined into one
-    let n = 0;
-    for (let i = 0; i < index.length; i++) for (let j = index.length - 1; j > i; j--) {
-      const a = index[i], b = index[j];
-      if (a.id === b.id || !sameWork(a, b)) continue;
-      await joinWorks(a, b, async p => { const v = await get(p + b.id); return v && unseal(key, v); });
-      await Promise.all([del('w:' + b.id), del('c:' + b.id), del('p:' + b.id)]);
-      groups.forEach(g => g.ids = [...new Set(g.ids.map(x => x === b.id ? a.id : x))]);
-      index.splice(j, 1); n++;
-    }
-    await saveIndex(); await saveGroups();
-    toast(n ? `${n} double${n > 1 ? 's' : ''} joined` : 'No doubles found', 4000); route();
   },
   async remove(id) {
     if (!confirm('Delete this work from your archive?')) return;
@@ -1649,7 +1656,6 @@ function showSettings() {
         Send it to yourself any way you like (cable, Drive, WhatsApp). On the new phone, open the app and choose "Restore from a backup file".</p>
       ${row('backup', 'Create a backup file')}
       ${row('merge', 'Add works from a backup file', "Fics you already have aren't added twice")}
-      ${row('dedupe', 'Join doubled fics', 'If a fic appears twice in your archive')}
     </div>
 
     <h2>Survivors' medal</h2>
