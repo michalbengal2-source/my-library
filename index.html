@@ -74,9 +74,10 @@
   ul.tags li:not(:last-child)::after { content:", "; }
   ul.tags .warnings .tag { font-weight:bold; border:0; }
   blockquote.summary { margin:10px 0 0; }
-  dl.stats { text-align:right; margin:10px 0 0; font-size:.9em; }
+  dl.stats { display:flex; flex-wrap:wrap; gap:4px 16px; justify-content:flex-start; margin:10px 0 0; font-size:.9em; }
+  dl.stats > div { white-space:nowrap; }
   dl.stats dt, dl.stats dd { display:inline; margin:0; }
-  dl.stats dd { margin-inline-end:12px; }
+  dl.stats dd { margin-inline-start:4px; }
 
   /* AO3-style Sort and Filter panel */
   .filters { background:#ddd; border-radius:4px; padding:8px 12px; margin-bottom:12px; font-size:var(--ls); }
@@ -123,6 +124,15 @@
   /* AO3 chapter page */
   ul.actions { list-style:none; padding:0; margin:6px 0 10px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
   ul.actions select { max-width:46vw; }
+  /* fic tools: a tidy grid, every control the same size */
+  .wtools { display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; max-width:560px; margin:8px auto 12px; }
+  .wtools .span2 { grid-column:span 2; }
+  .wtools > *, .wtools .pair > * { box-sizing:border-box; width:100%; min-width:0; height:2.5em; margin:0; padding:0 .4em; border-radius:.25em;
+    font:inherit; font-size:.85rem; line-height:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; justify-content:center; }
+  .wtools .pair { display:flex; gap:4px; padding:0; height:auto; }
+  .wtools select { display:block; -webkit-appearance:none; appearance:none; text-align:center; text-align-last:center; padding:0 1.3em 0 .5em;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23666' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right .45em center,
+      linear-gradient(#fff 2%, #ddd 95%, #bbb 100%); }
   ul.tools { margin-top:-2px; }
   /* every button and menu on the fic page the same size */
   ul.actions button, ul.actions .btn, ul.actions select { box-sizing:border-box; height:2.3em; font:inherit; font-size:.95rem; line-height:1;
@@ -274,7 +284,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.22';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.23';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -1163,6 +1173,17 @@ main.addEventListener('change', e => {
     printJob.mode = 'manual'; printJob.changed = null; printJob.files = null;
     savePrint(); renderExport();
   }
+  if (e.target.matches('.moresel')) {
+    const v = e.target.value, id = e.target.dataset.id;
+    e.target.value = '';
+    if (v === 'print') location.hash = 'export/' + id;
+    else if (v.startsWith('grp:')) (async () => {   // add to / remove from a collection
+      const g = v === 'grp:new' ? await makeGroup() : groupById(v.slice(4));
+      if (g) { const i = g.ids.indexOf(id); i < 0 ? g.ids.push(id) : g.ids.splice(i, 1); await saveGroups(); toast(`${i < 0 ? 'Added to' : 'Removed from'} ${g.name}`); }
+      route();
+    })();
+    else if (v) actions[v](id);
+  }
   if (e.target.matches('.ratesel')) {
     index.find(m => m.id === e.target.dataset.id).rating = +e.target.value || undefined;
     saveIndex(); toast(+e.target.value ? `Rated ${e.target.value}/10` : 'Rating removed');
@@ -1347,13 +1368,11 @@ function blurb(m, extra = '') {
     ${seriesOf(m).map(s => `<p class="series">Part <b>${s.part}</b> of <a href="#s/${encodeURIComponent(s.name)}"><b>${esc(s.name)}</b></a></p>`).join('')}
     ${groups.filter(g => g.ids.includes(m.id)).map(g => `<p class="series">Part <b>${g.ids.indexOf(m.id) + 1}</b> of <a href="#g/${g.id}"><b>${esc(g.name)}</b></a></p>`).join('')}
     ${m.newFrom != null && (m.last ?? -1) < m.newFrom ? `<p class="new">✦ ${m.count - m.newFrom} new chapter${m.count - m.newFrom > 1 ? 's' : ''}</p>` : ''}
-    <dl class="stats">${lang ? `<dt>Language:</dt> <dd>${esc(lang)}</dd>` : ''}
-      <dt>Words:</dt> <dd>${esc(m.words)}</dd>
-      ${m.kind === 'book' ? '' : `<dt>Kudos:</dt> <dd>${stat(m, 'Kudos')?.toLocaleString('en') ?? '–'}</dd>`}
-      <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
-      ${STATS.filter(k => k !== 'Kudos' && stat(m, k) != null).map(k => `<dt>${k}:</dt> <dd>${stat(m, k).toLocaleString('en')}</dd>`).join(' ')}
-      ${m.rating ? `<dt>My Rating:</dt> <dd>${m.rating}/10</dd>` : ''}
-      <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>${extra}
+    <dl class="stats">${[lang && ['Language', esc(lang)], ['Words', esc(m.words)],
+      m.kind !== 'book' && ['Kudos', stat(m, 'Kudos')?.toLocaleString('en') ?? '–'], ['Chapters', esc(m.chapters)],
+      ...STATS.filter(k => k !== 'Kudos' && stat(m, k) != null).map(k => [k, stat(m, k).toLocaleString('en')]),
+      m.rating && ['My Rating', m.rating + '/10'], ['Read', m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)]]
+      .filter(Boolean).map(([l, v]) => `<div><dt>${l}:</dt><dd>${v}</dd></div>`).join('')}</dl>${extra}
   </li>`;
 }
 
@@ -1539,25 +1558,24 @@ async function showWork(id, ch) {
   const warn = l => /warning/i.test(l) ? 'warning' : '';
 
   main.innerHTML = `
-    <ul class="actions">
-      ${i > 0 ? btn(i - 1, '← Previous') : ''}
-      ${n > 1 ? `<li><select class="chsel">${w.chapters.map((x, j) => `<option value="w/${id}/${j}" ${j === i ? 'selected' : ''}>${esc(j + 1 + '. ' + chName(x, j))}</option>`).join('')}</select></li>` : ''}
-    </ul>
-    <ul class="actions tools">
-      ${n > 1 ? `<li><button data-do="readMode">Reading: ${byChapter(m) ? 'By chapter' : 'Continuous'}</button></li>` : ''}
-      <li><button data-do="full">⛶ Full Screen</button></li>
-      <li><button data-do="size" data-arg="fs,-1">A−</button></li><li><button data-do="size" data-arg="fs,1">A+</button></li>
-      <li><button data-do="cover" data-arg="${id}">${m.cover ? 'Change Cover' : 'Add Cover'}</button></li>
-      ${m.cover ? `<li><button data-do="uncover" data-arg="${id}">Remove Cover</button></li>` : ''}
-      <li><select class="grpsel" data-id="${id}"><option value="">Collections…</option>${groups.map(g =>
-        `<option value="${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}<option value="new">+ New collection</option></select></li>
-      <li><select class="ratesel" data-id="${id}"><option value="">My rating…</option>${[...Array(10)].map((_, r) =>
-        `<option value="${r + 1}" ${m.rating === r + 1 ? 'selected' : ''}>★ ${r + 1}/10</option>`).join('')}</select></li>
-      ${m.kind === 'book' ? '' : `<li><button data-do="setStats" data-arg="${id}">Kudos</button></li>`}
-      <li><a class="btn" href="#export/${id}">Print (Lulu)</a></li>
-      <li><button data-do="add" data-arg="${id}">Update</button></li>
-      <li><button data-do="remove" data-arg="${id}">Delete</button></li>
-    </ul>
+    <div class="wtools">
+      ${n > 1 ? `<select class="chsel span2" aria-label="Chapter">${w.chapters.map((x, j) => `<option value="w/${id}/${j}" ${j === i ? 'selected' : ''}>${esc(j + 1 + '. ' + chName(x, j))}</option>`).join('')}</select>
+        <button data-do="readMode">${byChapter(m) ? 'By chapter' : 'Continuous'}</button>` : ''}
+      <button data-do="full">⛶ Full</button>
+      <div class="pair"><button data-do="size" data-arg="fs,-1" aria-label="Smaller text">A−</button><button data-do="size" data-arg="fs,1" aria-label="Bigger text">A+</button></div>
+      ${m.kind === 'book' ? '' : `<button data-do="setStats" data-arg="${id}">Kudos</button>`}
+      <select class="ratesel" data-id="${id}" aria-label="My rating"><option value="">${m.rating ? '★ ' + m.rating + '/10' : '★ Rating'}</option>${[...Array(10)].map((_, r) =>
+        `<option value="${r + 1}" ${m.rating === r + 1 ? 'selected' : ''}>★ ${r + 1}/10</option>`).join('')}</select>
+      ${n > 1 ? '' : `<button data-do="cover" data-arg="${id}">${m.cover ? 'Cover' : 'Add Cover'}</button><a class="btn" href="#export/${id}">Print</a>
+        <button data-do="add" data-arg="${id}">Update</button>`}
+      <select class="moresel" data-id="${id}" aria-label="More"><option value="">More</option>
+        ${n > 1 ? `<option value="cover">${m.cover ? 'Change cover' : 'Add cover'}</option>` : ''}
+        ${m.cover ? '<option value="uncover">Remove cover</option>' : ''}
+        ${n > 1 ? '<option value="print">Print (Lulu)</option><option value="add">Update from a new file</option>' : ''}
+        <option value="remove">Delete</option>
+        <optgroup label="Collections">${groups.map(g => `<option value="grp:${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}
+          <option value="grp:new">+ New collection</option></optgroup></select>
+    </div>
     <div class="wrapper"><dl class="meta">${m.tags.map(([l, v]) =>
       `<dt class="${warn(l)}">${esc(l)}:</dt><dd class="${warn(l)}">${dd(l, v)}</dd>`).join('')}</dl></div>
     <div class="work">
@@ -1579,7 +1597,7 @@ function showGroups() {
     <h2 class="heading">${groups.length} Collection${groups.length === 1 ? '' : 's'}</h2>
     <ul class="groups">${groups.map(g => `<li><a href="#g/${g.id}">${esc(g.name)}</a>
       <span class="muted">${g.ids.length} work${g.ids.length === 1 ? '' : 's'}</span></li>`).join('')}</ul>
-    ${groups.length ? '' : '<p class="center muted">No collections yet. Create one, then open a work and choose it in "Collections…".</p>'}
+    ${groups.length ? '' : '<p class="center muted">No collections yet. Create one, then open a work and choose it under "More".</p>'}
     ${seriesNames().length ? `<h2 class="heading">Series</h2><p class="muted">Found automatically in AO3 works and EPUB books.</p>
       <ul class="groups">${seriesNames().map(n => `<li><a href="#s/${encodeURIComponent(n)}">${esc(n)}</a>
         <span class="muted">${seriesWorks(n).length} works</span></li>`).join('')}</ul>` : ''}`;
