@@ -151,6 +151,7 @@
   dialog input { width:100%; font-size:1.3rem; padding:8px; margin:8px 0; }
   dialog menu { display:flex; gap:8px; padding:0; margin:8px 0 0; }
   #dlg-err { color:#d33; min-height:1em; margin:0; }
+  body.nopw [data-do=lock] { display:none; }
   button.link { background:none; border:0; box-shadow:none; color:var(--red); text-decoration:underline; padding:6px; min-width:0; }
   dialog menu button.link { background:none; border:0; color:var(--red); text-decoration:underline; padding:0; margin-inline-start:auto; }
   .intro { max-width:560px; margin:0 auto; padding:28px 18px 20px; min-height:80vh; display:flex; flex-direction:column; }
@@ -162,7 +163,8 @@
   .intro .dots b { color:var(--red); }
   .intro .nav { display:flex; justify-content:space-between; gap:10px; }
   .medal { display:block; margin:12px auto; width:min(60vw, 220px); height:auto; }
-  .drawer .medal { width:120px; margin:10px auto 4px; }
+  .drawer .medals { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-start; padding:12px 12px 20px; }   /* room for more medals later */
+  .drawer .medal { width:64px; margin:0; }
   .medalbtn { display:block; margin:6px auto 0; }
   .code { font:bold 1.1rem monospace; letter-spacing:1px; background:#f3f3f3; border:2px dashed var(--red); border-radius:8px; padding:14px; text-align:center; margin:16px 0; user-select:all; word-break:break-all; }
   #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 18px; border-radius:20px; z-index:9; }
@@ -194,16 +196,16 @@
     <p id="dlg-msg"></p>
     <input id="dlg-pw" type="password" autocomplete="current-password">
     <p id="dlg-err"></p>
-    <menu><button value="ok">OK</button><button value="" id="dlg-cancel">Cancel</button><button value="forgot" id="dlg-forgot" class="link" hidden>Forgot password?</button></menu>
+    <menu><button value="ok">OK</button><button value="" id="dlg-cancel">Cancel</button><button value="extra" id="dlg-extra" class="link" hidden></button></menu>
   </form>
 </dialog>
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.17';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.18';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
-let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
+let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
 
 /* ---------- Local storage (IndexedDB) ---------- */
 const dbp = new Promise((ok, no) => {
@@ -252,16 +254,16 @@ const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit
 const pref = (k, v) => { try { return v === undefined ? localStorage[k] : (localStorage[k] = v); } catch {} };
 function toast(t, ms = 3500) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, ms); }
 
-const FORGOT = Symbol('forgot');
-// opts.forgot: show "Forgot password?" (returns FORGOT); opts.text: visible text instead of a hidden password
+const EXTRA = Symbol('extra');
+// opts.extra: a second choice under the field ("Forgot password?", "No password"), returns EXTRA; opts.text: visible text instead of a hidden password
 function askPassword(msg, cancelable = true, err = '', opts = {}) {
   const d = $('#dlg');
   $('#dlg-msg').textContent = msg; $('#dlg-err').textContent = err;
   $('#dlg-pw').value = ''; $('#dlg-pw').type = opts.text ? 'text' : 'password';
-  $('#dlg-cancel').hidden = !cancelable; $('#dlg-forgot').hidden = !opts.forgot; d.returnValue = '';
+  $('#dlg-cancel').hidden = !cancelable; $('#dlg-extra').hidden = !opts.extra; $('#dlg-extra').textContent = opts.extra || ''; d.returnValue = '';
   d.oncancel = e => cancelable || e.preventDefault();
   d.showModal();
-  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : d.returnValue === 'forgot' ? FORGOT : null));
+  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : d.returnValue === 'extra' ? EXTRA : null));
 }
 
 /* ---------- Recovery code ----------
@@ -288,11 +290,14 @@ async function rekey(pw) {
   await store('readwrite', st => { let r; for (const k in out) r = st.put(out[k], k); return r; });
   key = nk;
 }
-async function newPassword(msg) {
+async function newPassword(msg, cancelable = false) {
   for (let err = ''; ;) {
-    const pw = await askPassword(msg, false, err);
+    const pw = await askPassword(msg, cancelable, err);
+    if (pw === null && cancelable) return null;
     if (!pw || pw.length < 4) { err = 'At least 4 characters'; continue; }
-    if (await askPassword('Type the password again to confirm', false) === pw) return pw;
+    const again = await askPassword('Type the password again to confirm', cancelable);
+    if (again === null && cancelable) return null;
+    if (again === pw) return pw;
     err = "Passwords didn't match, try again";
   }
 }
@@ -706,9 +711,14 @@ async function start() {
   document.body.classList.remove('open');
   const salt = await get('salt');
   if (!salt) return showWelcome();
+  noPw = !!await get('nopw');
+  if (noPw) try {   // an archive without a password opens straight away
+    const k = await deriveKey('', salt), g = await get('groups');
+    index = await unseal(k, await get('index')); groups = g ? await unseal(k, g) : []; key = k;
+  } catch { noPw = false; }
   for (let err = ''; !key;) {
-    const pw = await askPassword('Enter your password to open the archive', false, err, { forgot: true });
-    if (pw === FORGOT) { if (await recover()) break; err = ''; continue; }
+    const pw = await askPassword('Enter your password to open the archive', false, err, { extra: 'Forgot password?' });
+    if (pw === EXTRA) { if (await recover()) break; err = ''; continue; }
     try {
       const k = await deriveKey(pw || '', salt), g = await get('groups');
       index = await unseal(k, await get('index')); groups = g ? await unseal(k, g) : []; key = k;
@@ -719,6 +729,7 @@ async function start() {
 }
 function enter() {
   document.body.classList.add('open');
+  document.body.classList.toggle('nopw', noPw);   // no lock button without a password
   navigator.storage?.persist?.();   // asks the phone not to clear this data when space runs low
   // Reopen where you left off: same screen, same spot in the chapter
   const p = place();
@@ -733,8 +744,13 @@ const place = () => { try { return JSON.parse(pref('place')) || {}; } catch { re
 // y is the position inside the current chapter (0 = its start), so it survives font-size changes
 const savePlace = () => {
   if (!key) return;
-  const sec = currentChapter();
-  pref('place', JSON.stringify({ h: location.hash, y: sec ? (scrollY - sec.offsetTop) / sec.offsetHeight : 0 }));
+  const sec = currentChapter(), y = sec ? (scrollY - sec.offsetTop) / sec.offsetHeight : 0;
+  pref('place', JSON.stringify({ h: location.hash, y }));
+  // each fic remembers where in its last chapter you stopped (saved encrypted with the archive, a moment after scrolling stops)
+  if (reader && sec && y >= 0 && location.hash.startsWith('#w/')) {   // above the chapter (the fic's header) isn't a reading spot
+    reader.m.y = Math.min(1, y);
+    clearTimeout(savePlace.t); savePlace.t = setTimeout(saveIndex, 1500);
+  }
 };
 const currentChapter = () => [...document.querySelectorAll('section.chapter')].filter(x => x.offsetTop <= scrollY + 80).pop()
   || $('section.chapter');
@@ -792,7 +808,7 @@ async function importShared() {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { hiddenAt = Date.now(); savePlace(); }
-  else if (key && Date.now() - hiddenAt > 5 * 60e3) start();   // auto-lock after 5 minutes in the background
+  else if (key && !noPw && Date.now() - hiddenAt > 5 * 60e3) start();   // auto-lock after 5 minutes in the background
 });
 
 /* ---------- Actions ---------- */
@@ -816,7 +832,15 @@ const actions = {
   },
   size(arg) { const [k, d] = arg.split(','); pref(k, Math.min(28, Math.max(10, size(k) + +d))); applySizes(); if (location.hash === '#settings') route(); },
   async create() {
-    const pw = await askPassword('Choose a password (at least 4 characters). Next you will get a recovery code, in case you forget it.');
+    const pw = await askPassword('Choose a password to lock your archive (recommended, at least 4 characters). Next you will get a recovery code, in case you forget it.',
+      true, '', { extra: 'No password' });
+    if (pw === EXTRA) {   // no password: still stored the same way, opened with an empty password
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      key = await deriveKey('', salt); index = []; noPw = true;
+      await put('salt', salt); await put('nopw', new Uint8Array([1])); await saveIndex();
+      toast('No password. You can add one any time in ⚙ Settings.', 6000);
+      return enter();
+    }
     if (!pw) return;
     if (pw.length < 4) return toast('Password is too short');
     if (await askPassword('Type the password again to confirm') !== pw) return toast("Passwords don't match");
@@ -829,7 +853,7 @@ const actions = {
   async restore() {
     const [f] = await pickFiles('.json,application/json');
     const data = f && readBackup(await f.text());
-    if (!data) return f && toast('This is not a archive backup file');
+    if (!data) return f && toast('This is not an archive backup file');
     for (const k in data) await put(k, data[k]);
     start();
   },
@@ -845,6 +869,15 @@ const actions = {
   async uncover(id) {
     await del('c:' + id); delete covers[id];
     index.find(m => m.id === id).cover = false; await saveIndex(); route();
+  },
+  async addPw() {
+    const pw = await newPassword('Choose a password to lock your archive (at least 4 characters)', true);
+    if (!pw) return;
+    toast('Locking your archive…');
+    await rekey(pw); await del('nopw'); noPw = false;
+    document.body.classList.remove('nopw');
+    await showCode(await setRecovery(pw));
+    route();
   },
   async newCode() {
     const pw = await askPassword('Enter your password to make a new recovery code (the old one will stop working)');
@@ -882,12 +915,15 @@ const actions = {
   async merge() {
     const [f] = await pickFiles('.json,application/json');
     const data = f && readBackup(await f.text());
-    if (!data) return f && toast('This is not a archive backup file');
-    const pw = await askPassword("Enter the backup file's password");
-    if (!pw) return;
+    if (!data) return f && toast('This is not an archive backup file');
     let bk, list;
-    try { bk = await deriveKey(pw, data.salt); list = await unseal(bk, data.index); }
-    catch { return toast('Wrong password for this file'); }
+    try { bk = await deriveKey('', data.salt); list = await unseal(bk, data.index); }   // a backup made without a password
+    catch {
+      const pw = await askPassword("Enter the backup file's password");
+      if (!pw) return;
+      try { bk = await deriveKey(pw, data.salt); list = await unseal(bk, data.index); }
+      catch { return toast('Wrong password for this file'); }
+    }
     const added = list.filter(m => !index.some(x => x.id === m.id));
     for (const m of added) for (const k of ['w:' + m.id, 'c:' + m.id, 'p:' + m.id])
       if (data[k]) await put(k, await seal(key, await unseal(bk, data[k])));
@@ -1012,7 +1048,10 @@ function route() {
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
   window.Native?.setBarColor(view === 'w' ? '#ffffff' : '#990000');
   if (view !== 'w' && document.body.classList.contains('full')) { document.body.classList.remove('full'); phoneFull(false); }
-  const y = restoreY; restoreY = null;
+  reader = null;   // the fic being left keeps the spot it already saved
+  // where to continue: the spot saved when the app closed, or else where you stopped in this fic's last chapter
+  const fic = view === 'w' && index.find(x => x.id === id);
+  const y = restoreY ?? (fic && +(ch || 0) === (fic.last ?? 0) ? fic.y : null); restoreY = null;
   if (view === 'w') return showWork(id, ch).then(() => {
     const sec = $('section.chapter');
     if (y && sec) scrollTo(0, sec.offsetTop + y * sec.offsetHeight);
@@ -1069,8 +1108,8 @@ const INTRO = [
     <p>When a fic gets new chapters, download its file again from AO3, open the fic in My Archive and tap <b>Update</b>.
     Your reading place, cover and rating are kept.</p>
     <p>Yes, it's a little more effort, but it's worth it: it's what keeps your archive completely private.</p>`],
-  ['Your password', `<p>Your password locks the archive. When you create it, you'll get a <b>recovery code</b>: write it down.
-    It's the only way back in if you forget the password.</p>
+  ['Your password', `<p>We recommend locking your archive with a password. If you'd rather not, you can skip it and add one later in ⚙ Settings.</p>
+    <p>When you set a password, you'll get a <b>recovery code</b>: write it down. It's the only way back in if you forget the password.</p>
     <p>Make a backup file from time to time (⚙ Settings). It's also how you move your archive to a new phone.</p>`],
 ];
 function showIntro(done, i = 0) {
@@ -1185,7 +1224,11 @@ const countsOf = get => {   // [tag, number of works], most common first
   return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 };
 
-/* The side menu: Show (bookshelf), Sort by, Include, Exclude — all as AO3-style folding lists */
+/* Search boxes for Fandoms, Characters, Relationships and Additional Tags: every typed word must appear,
+   so "harry" shows every relationship with Harry, and "draco harry" shows Draco/Harry in either order */
+const SEARCH = { 3: 'Type a fandom…', 4: 'Type a character…', 5: 'Type a name…', 6: 'Type a tag…' }, searchQ = {};
+const flat = t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const matches = (t, q) => flat(q).split(/\s+/).filter(Boolean).every(w => flat(t).includes(w));
 function filterPanel() {
   const section = (id, title, body) => `<details data-g="${id}" ${openG.has(id) ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
   const radio = (name, v, label, on) => `<label><input type="radio" name="${name}" value="${v}" ${on ? 'checked' : ''}>${esc(label)}</label>`;
@@ -1196,8 +1239,9 @@ function filterPanel() {
       (filters.inc.size + filters.exc.size ? '<p><button id="fclear">Clear Filters</button></p>' : '') +
       [['inc', 'Include'], ['exc', 'Exclude']].map(([mode, title]) => `<h3>${title}</h3>` + GROUPS.map(([g, get], gi) => {
         const list = countsOf(get);
-        return list.length ? section(mode + gi, g, (gi === 6 ? '<input type="search" class="tagsearch" placeholder="Type a tag…">' : '') + list.map(([t, n]) =>
-          `<label><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')) : '';
+        const id = mode + gi, q = searchQ[id] || '';
+        return list.length ? section(id, g, (SEARCH[gi] ? `<input type="search" class="tagsearch" data-s="${id}" placeholder="${SEARCH[gi]}" value="${esc(q)}">` : '') + list.map(([t, n]) =>
+          `<label ${q && !matches(t, q) ? 'hidden' : ''}><input type="checkbox" data-f="${mode}" value="${esc(gi + '|' + t)}" ${filters[mode].has(gi + '|' + t) ? 'checked' : ''}>${esc(t)} (${n})</label>`).join('')) : '';
       }).join('')).join(''));
 }
 
@@ -1214,8 +1258,8 @@ const activeFilters = () => filters.inc.size + filters.exc.size ? `<p class="act
   [...filters.exc].map(k => `<button class="chip exc" data-unf="${esc(k)}">✕ ${esc(tagName(k))}</button>`).join('')}<button class="chip" id="unall">Clear all</button></p>` : '';
 
 function toolbar(draw) {
-  main.innerHTML = `<aside id="drawer" class="drawer"><div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>${medalImg()}
-      <div id="filters" class="filters"></div></aside><div id="scrim"></div><div id="act"></div><div id="out"></div>`;
+  main.innerHTML = `<aside id="drawer" class="drawer"><div class="dhead"><b>Sort and Filter</b><button id="dclose" aria-label="Close">✕</button></div>
+      <div id="filters" class="filters"></div>${hasMedal() ? `<div class="medals">${medalImg()}</div>` : ''}</aside><div id="scrim"></div><div id="act"></div><div id="out"></div>`;
   // side menu: closed until ☰ is tapped; ✕ or tapping outside closes it
   const drawer = $('#drawer'), panel = $('#filters'), toggleDrawer = open => drawer.classList.toggle('open', open);
   $('#menu').onclick = () => toggleDrawer(true);
@@ -1228,10 +1272,10 @@ function toolbar(draw) {
     draw();
   };
   panel.addEventListener('toggle', e => openG[e.target.open ? 'add' : 'delete'](e.target.dataset.g), true);
-  panel.oninput = e => {   // Additional Tags search: shows only the tags that contain what was typed
+  panel.oninput = e => {   // search boxes: show only what matches what was typed (kept while choosing)
     if (!e.target.matches('.tagsearch')) return;
-    const q = e.target.value.toLowerCase();
-    e.target.parentNode.querySelectorAll('label').forEach(l => l.hidden = !l.textContent.toLowerCase().includes(q));
+    const q = searchQ[e.target.dataset.s] = e.target.value;
+    e.target.parentNode.querySelectorAll('label').forEach(l => l.hidden = !matches(l.textContent.replace(/ \(\d+\)$/, ''), q));
   };
   panel.onclick = e => { if (e.target.id === 'fclear') { filters.inc.clear(); filters.exc.clear(); redraw(true); } };
   panel.onchange = e => {
@@ -1326,6 +1370,8 @@ async function showWork(id, ch) {
   const dd = (l, v) => /^stats/i.test(l)
     ? v.join(' ').replace(/\b(Kudos|Hits):\s*\S+/gi, '').replace(/(\S+:)\s*(\S+)/g, (_, a, b) => `<span class="st">${esc(a)} ${esc(b)}</span>`) +
       ['Kudos', 'Hits'].filter(k => stat(m, k) != null).map(k => ` <span class="st">${k}: ${stat(m, k).toLocaleString('en')}</span>`).join('')
+    : /^series/i.test(l) ? v.map(t => { const name = t.match(/Part \d+ of (.+)/i)?.[1];   // "Part 2 of Name" opens the series
+        return name ? `<a class="tag" href="#s/${encodeURIComponent(name)}">${esc(t)}</a>` : `<span class="tag">${esc(t)}</span>`; }).join(', ')
     : v.map(t => `<span class="tag" ${groupOfLabel(l) >= 0 ? `data-k="${esc(groupOfLabel(l) + '|' + t)}"` : ''}>${esc(t)}</span>`).join(', ');
   const warn = l => /warning/i.test(l) ? 'warning' : '';
 
@@ -1348,7 +1394,6 @@ async function showWork(id, ch) {
       <li><button data-do="add" data-arg="${id}">Update</button></li>
       <li><button data-do="remove" data-arg="${id}">Delete</button></li>
     </ul>
-    ${seriesBar(m)}
     <div class="wrapper"><dl class="meta">${m.tags.map(([l, v]) =>
       `<dt class="${warn(l)}">${esc(l)}:</dt><dd class="${warn(l)}">${dd(l, v)}</dd>`).join('')}</dl></div>
     <div class="work">
@@ -1418,10 +1463,11 @@ function upNext(m) {
 function showSettings() {
   document.title = 'Settings';
   main.innerHTML = `<h2 class="heading">Password &amp; recovery code</h2>
-    <p id="recnote" class="muted"></p>
-    <p><button data-do="newCode">Make a new recovery code</button> <button data-do="changePw">Change password</button></p>
+    ${noPw ? `<p><b style="color:var(--red)">Your archive has no password.</b> Anyone holding your phone can open it, and its backup files can be read by anyone who gets them.</p>
+    <p><button data-do="addPw">Add a password</button></p>` : `<p id="recnote" class="muted"></p>
+    <p><button data-do="newCode">Make a new recovery code</button> <button data-do="changePw">Change password</button></p>`}
     <h2 class="heading">Backup &amp; moving to another phone</h2>
-    <p>The backup file is encrypted with your password, so it can't be read without it. Send it to yourself any way you like
+    <p>${noPw ? 'Without a password the backup file is not protected, so keep it somewhere private.' : "The backup file is encrypted with your password, so it can't be read without it."} Send it to yourself any way you like
        (cable, Drive, WhatsApp), then on the new phone open the app and choose "Restore from a backup file".</p>
     <p><button data-do="backup">Create a backup file</button></p>
     <p><button data-do="merge">Add works from a backup file to this archive</button></p>
@@ -1433,7 +1479,7 @@ function showSettings() {
     <p>${medalBtn()}</p>
     <h2 class="heading">About</h2>
     <p><button data-do="intro">How My Archive works</button></p>
-    <p class="muted">${index.length} works in your archive · auto-locks after 5 minutes in the background · app version ${APP_VERSION}</p>`;
+    <p class="muted">${index.length} works in your archive${noPw ? '' : ' · auto-locks after 5 minutes in the background'} · app version ${APP_VERSION}</p>`;
   get('rec').then(r => { const n = $('#recnote'); if (n) n.innerHTML = r
     ? 'If you forget your password, the recovery code you saved opens the archive ("Forgot password?" on the lock screen).'
     : '<b style="color:var(--red)">This archive has no recovery code yet.</b> Make one now, so a forgotten password doesn\'t lock you out forever.'; });
