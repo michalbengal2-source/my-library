@@ -1,7 +1,7 @@
 // Keeps the app's own files on the phone so it works offline. Never touches the library itself.
-// Network first: when online it picks up new versions automatically; offline it uses the saved copy.
+// Network first, always asking the server for the newest version (no stale copies); offline it uses the saved copy.
 // "shared" briefly holds HTML files shared into the app, until the library is unlocked and imports them.
-const CACHE = 'library-v3';
+const CACHE = 'library-v4';
 
 self.oninstall = () => self.skipWaiting();
 self.onactivate = e => e.waitUntil(caches.keys()
@@ -13,7 +13,7 @@ self.onfetch = e => {
     await Promise.all(files.map((f, i) => c.put(`shared/${Date.now()}-${i}`, new Response(f))));
     return Response.redirect(self.registration.scope, 303);
   })());
-  if (e.request.method === 'GET') e.respondWith(fetch(e.request)
+  if (e.request.method === 'GET') e.respondWith(fetch(e.request, { cache: 'no-cache' })
     .then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
     .catch(() => caches.match(e.request, { ignoreSearch: true })));
 };

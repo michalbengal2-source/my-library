@@ -1,0 +1,67 @@
+# Builds the Android app from the library files in this repository and publishes it as a download.
+# Runs by itself whenever index.html or the app's files change; can also be started by hand (Actions -> Run workflow).
+name: Build Android app
+
+on:
+  push:
+    paths:
+      - 'index.html'
+      - 'pdf-reader.html'
+      - 'print-fonts.html'
+      - 'print-fonts-cjk.html'
+      - 'android/**'
+      - '.github/workflows/android-app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Check the key password
+        env:
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # Without the KEY_PASSWORD secret the app is only test-built (to catch errors), not signed or published
+          if [ -z "$KEY_PASSWORD" ]; then echo "::warning::KEY_PASSWORD secret is missing: test build only"; echo "SIGN=no" >> "$GITHUB_ENV"; else echo "SIGN=yes" >> "$GITHUB_ENV"; fi
+
+      - name: Put the library files inside the app
+        run: |
+          mkdir -p android/app/src/main/assets
+          cp index.html pdf-reader.html print-fonts.html print-fonts-cjk.html icon-192.png icon-512.png android/app/src/main/assets/
+
+      - name: Build
+        working-directory: android
+        env:
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          export VERSION_NAME=$(grep -o "APP_VERSION = '[^']*'" ../index.html | cut -d"'" -f2)
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          if [ "$SIGN" = no ]; then gradle assembleDebug --no-daemon --stacktrace; exit 0; fi
+          gradle assembleRelease bundleRelease --no-daemon --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk ../MyLibrary.apk
+          cp app/build/outputs/bundle/release/app-release.aab ../MyLibrary-GooglePlay.aab
+
+      - name: Publish the download
+        if: env.SIGN == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "app-${{ github.run_number }}" MyLibrary.apk MyLibrary-GooglePlay.aab \
+            --title "My Library $VERSION_NAME (Android)" \
+            --notes "Install MyLibrary.apk on the phone. MyLibrary-GooglePlay.aab is only for uploading to Google Play." \
+            --latest

@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'app.mylibrary.reader'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'app.mylibrary.reader'
+        minSdk 24
+        targetSdk 35
+        // set by the GitHub build: the build number and the version shown in the app (APP_VERSION in index.html)
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName System.getenv('VERSION_NAME') ?: '1.0'
+    }
+
+    signingConfigs {
+        release {
+            // the key file is in the repository, locked with the password kept in the KEY_PASSWORD secret
+            storeFile file('../release.p12')
+            storeType 'pkcs12'
+            storePassword System.getenv('KEY_PASSWORD')
+            keyAlias 'mylibrary'
+            keyPassword System.getenv('KEY_PASSWORD')
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.core:core:1.13.1'
+}

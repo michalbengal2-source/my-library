@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <!-- Blocks every outgoing connection except to this app's own address (used only to load the print fonts): no data can reach any other server -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:">
 <meta name="theme-color" content="#990000">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
@@ -186,7 +186,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.10';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.12';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -245,6 +245,32 @@ function askPassword(msg, cancelable = true, err = '') {
   d.oncancel = e => cancelable || e.preventDefault();
   d.showModal();
   return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? $('#dlg-pw').value : null));
+}
+async function saveFile(blob, name) {
+  if (!window.Native) {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove(); return;
+  }
+  const id = Native.saveBegin(name, blob.type || 'application/octet-stream'), step = 3 << 18;
+  for (let i = 0; i < blob.size; i += step) {
+    const b = new Uint8Array(await blob.slice(i, i + step).arrayBuffer());
+    let s = '';
+    for (let j = 0; j < b.length; j += 0x8000) s += String.fromCharCode.apply(null, b.subarray(j, j + 0x8000));
+    Native.saveChunk(id, btoa(s));
+  }
+  Native.saveEnd(id);   // the app then asks where to save it
+}
+document.addEventListener('click', e => {   // download links (print files) inside the Android app
+  const a = e.target.closest?.('a[download]');
+  if (!a || !window.Native) return;
+  e.preventDefault();
+  fetch(a.href).then(r => r.blob()).then(b => saveFile(b, a.getAttribute('download')));
+});
+// The phone's real full screen (Android's bars hidden): through the Android app, or the browser's full screen
+function phoneFull(on) {
+  if (window.Native) return Native.setImmersive(on);
+  if (on && !document.fullscreenElement) document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+  if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 function pickFiles(accept, multiple = false) {
   const p = $('#pick'); Object.assign(p, { accept, multiple, value: '' });
@@ -667,6 +693,13 @@ async function importFiles(files, id) {
 /* Files shared into the app from another app (e.g. Downloads → Share → My Library) wait in a
    temporary cache until the library is unlocked, then are imported and deleted from there. */
 async function importShared() {
+  if (window.Native) {   // the Android app keeps files shared to it and serves them at /shared/0, /shared/1, …
+    const n = key ? +Native.sharedCount() : 0;
+    if (!n) return;
+    const files = await Promise.all([...Array(n)].map((_, i) => fetch('/shared/' + i).then(r => r.blob()).then(b => new File([b], Native.sharedName(i)))));
+    Native.sharedClear();
+    return importFiles(files);
+  }
   const c = await caches.open('shared'), reqs = await c.keys();
   if (!reqs.length) return;
   const files = await Promise.all(reqs.map(r => c.match(r).then(x => x.blob())));
@@ -694,7 +727,9 @@ const actions = {
     ask('Kudos', 'kudos'); ask('Hits', 'hits');
     await saveIndex(); route();
   },
-  full: () => document.body.classList.toggle('full'),   // the app's own full screen (the phone's would show Chrome's exit message)
+  full() {   // double tap while reading: hides the red bar and Android's own bars; double tap again (or Back) brings them back
+    phoneFull(document.body.classList.toggle('full'));
+  },
   size(arg) { const [k, d] = arg.split(','); pref(k, Math.min(28, Math.max(10, size(k) + +d))); applySizes(); if (location.hash === '#settings') route(); },
   async create() {
     const pw = await askPassword('Choose a password (at least 4 characters). If you forget it, the library cannot be recovered.');
@@ -731,9 +766,8 @@ const actions = {
     const file = new File([JSON.stringify({ app: 'my-library', v: 1, data })],
       `library-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
     // Saved straight to Downloads: the phone's share sheet refused this file type and failed silently
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name });
-    document.body.append(a); a.click(); a.remove();
-    toast(`Backup saved to Downloads: ${file.name}`);
+    await saveFile(file, file.name);
+    if (!window.Native) toast(`Backup saved to Downloads: ${file.name}`);
   },
   async merge() {
     const [f] = await pickFiles('.json,application/json');
@@ -866,7 +900,8 @@ function route() {
   $('#menu').hidden = !(view === '' || view === 'shelf');   // sorting and filtering exist only for Works and Bookshelf
   if ($('#menu').hidden) $('#menu').textContent = '☰';
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
-  if (view !== 'w') { document.body.classList.remove('full'); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); }
+  window.Native?.setBarColor(view === 'w' ? '#ffffff' : '#990000');
+  if (view !== 'w' && document.body.classList.contains('full')) { document.body.classList.remove('full'); phoneFull(false); }
   const y = restoreY; restoreY = null;
   if (view === 'w') return showWork(id, ch).then(() => {
     const sec = $('section.chapter');
@@ -1808,7 +1843,7 @@ function renderExport() {
 
 
 applySizes();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+if ('serviceWorker' in navigator && !window.Native) navigator.serviceWorker.register('sw.js');   // the Android app has its files inside it
 start();
 </script>
 </body>
