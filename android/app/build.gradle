@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'app.mylibrary.reader'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'app.mylibrary.reader'
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         // set by the GitHub build: the build number and the version shown in the app (APP_VERSION in index.html)
         versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
         versionName System.getenv('VERSION_NAME') ?: '1.0'

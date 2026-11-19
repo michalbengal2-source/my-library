@@ -274,7 +274,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.20';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.21';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -862,6 +862,26 @@ async function importFiles(files, id) {
   id ? route() : location.hash === '' ? route() : location.hash = '';
 }
 
+/* Two copies of the same fic (same title and author, e.g. one from a backup): joined into `keep`, which gets
+   the text with more chapters, the most recent reading place, and anything only the other copy has (rating, kudos, cover…).
+   read(prefix) gives the other copy's decrypted 'w:', 'c:' or 'p:' entry. */
+const sameWork = (a, b) => a.id === b.id || (a.title === b.title && a.author === b.author && (a.kind === 'book') === (b.kind === 'book'));
+async function joinWorks(keep, other, read) {
+  const count = m => m.count ?? (parseInt(m.chapters) || 0);
+  if (count(other) > count(keep)) {
+    const w = await read('w:');
+    if (w) {
+      await put('w:' + keep.id, await seal(key, w)); if (cache.id === keep.id) cache = {};
+      for (const f of ['title', 'author', 'tags', 'summary', 'words', 'chapters', 'date', 'count']) if (other[f] !== undefined) keep[f] = other[f];
+    }
+  }
+  if ((other.readAt || 0) > (keep.readAt || 0)) Object.assign(keep, { last: other.last, y: other.y, readAt: other.readAt });
+  for (const f of ['rating', 'kudos', 'hits', 'readMode', 'next']) if (keep[f] == null && other[f] != null) keep[f] = other[f];
+  if (other.added && (!keep.added || other.added < keep.added)) keep.added = other.added;
+  if (!keep.cover && other.cover) { const c = await read('c:'); if (c) { await put('c:' + keep.id, await seal(key, c)); keep.cover = true; } }
+  if (!await get('p:' + keep.id)) { const pj = await read('p:'); if (pj) await put('p:' + keep.id, await seal(key, pj)); }
+}
+
 /* Files shared into the app from another app (e.g. Downloads → Share → My Library) wait in a
    temporary cache until the library is unlocked, then are imported and deleted from there. */
 async function importShared() {
@@ -1011,13 +1031,36 @@ const actions = {
       try { bk = await deriveKey(pw, data.salt); list = await unseal(bk, data.index); }
       catch { return toast('Wrong password for this file'); }
     }
-    const added = list.filter(m => !index.some(x => x.id === m.id));
-    for (const m of added) for (const k of ['w:' + m.id, 'c:' + m.id, 'p:' + m.id])
-      if (data[k]) await put(k, await seal(key, await unseal(bk, data[k])));
-    index.push(...added); await saveIndex();
+    // fics already in this archive aren't added twice: the two copies are joined
+    toast('Adding works from the backup…');
+    const idMap = {}; let added = 0, joined = 0;
+    for (const m of list) {
+      const read = async p => data[p + m.id] ? unseal(bk, data[p + m.id]) : undefined, same = index.find(x => sameWork(x, m));
+      if (same) { await joinWorks(same, m, read); idMap[m.id] = same.id; joined++; continue; }
+      for (const p of ['w:', 'c:', 'p:']) { const v = await read(p); if (v !== undefined) await put(p + m.id, await seal(key, v)); }
+      index.push(m); idMap[m.id] = m.id; added++;
+    }
+    await saveIndex();
     const bg = data.groups ? await unseal(bk, data.groups) : [];
-    groups.push(...bg.filter(g => !groupById(g.id))); await saveGroups();
-    toast(`${added.length} works added from the backup`); route();
+    for (const g of bg) {   // collections: same collection (or same name) gets the works joined, without doubles
+      const ids = g.ids.map(i => idMap[i]).filter(Boolean), same = groupById(g.id) || groups.find(x => x.name === g.name);
+      if (same) same.ids = [...new Set([...same.ids, ...ids])]; else groups.push({ ...g, ids });
+    }
+    await saveGroups();
+    toast(`${added} works added${joined ? `, ${joined} already here (joined, not doubled)` : ''}`, 5000); route();
+  },
+  async dedupe() {   // fics that ended up in the archive twice: joined into one
+    let n = 0;
+    for (let i = 0; i < index.length; i++) for (let j = index.length - 1; j > i; j--) {
+      const a = index[i], b = index[j];
+      if (a.id === b.id || !sameWork(a, b)) continue;
+      await joinWorks(a, b, async p => { const v = await get(p + b.id); return v && unseal(key, v); });
+      await Promise.all([del('w:' + b.id), del('c:' + b.id), del('p:' + b.id)]);
+      groups.forEach(g => g.ids = [...new Set(g.ids.map(x => x === b.id ? a.id : x))]);
+      index.splice(j, 1); n++;
+    }
+    await saveIndex(); await saveGroups();
+    toast(n ? `${n} double${n > 1 ? 's' : ''} joined` : 'No doubles found', 4000); route();
   },
   async remove(id) {
     if (!confirm('Delete this work from your archive?')) return;
@@ -1605,7 +1648,8 @@ function showSettings() {
       <p class="note">${noPw ? 'Without a password the backup file is not protected, so keep it somewhere private.' : "The backup file is locked with your password."}
         Send it to yourself any way you like (cable, Drive, WhatsApp). On the new phone, open the app and choose "Restore from a backup file".</p>
       ${row('backup', 'Create a backup file')}
-      ${row('merge', 'Add works from a backup file')}
+      ${row('merge', 'Add works from a backup file', "Fics you already have aren't added twice")}
+      ${row('dedupe', 'Join doubled fics', 'If a fic appears twice in your archive')}
     </div>
 
     <h2>Survivors' medal</h2>

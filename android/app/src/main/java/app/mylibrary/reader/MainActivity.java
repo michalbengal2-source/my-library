@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Base64;
@@ -21,6 +22,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
+import android.window.OnBackInvokedDispatcher;
 
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -147,6 +149,10 @@ public class MainActivity extends Activity {
             }
         });
 
+        // Back: Android 13+ (and required from Android 16) uses a back callback; older phones call onBackPressed
+        if (Build.VERSION.SDK_INT >= 33)
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> { if (!goBack()) finish(); });
+
         if (state != null) web.restoreState(state);
         else web.loadUrl("https://" + HOST + "/assets/index.html");
         receive(getIntent());
@@ -212,17 +218,22 @@ public class MainActivity extends Activity {
         else bars.show(WindowInsetsCompat.Type.systemBars());
     }
 
+    /** Back inside the app: leaves full screen first (like a second double tap), then goes to the previous screen.
+     *  Returns false when there's nowhere left to go back to. */
+    boolean goBack() {
+        if (immersive) {
+            web.evaluateJavascript("document.body.classList.contains('full') && actions.full()", null);
+            setBarsHidden(false);
+            return true;
+        }
+        if (web.canGoBack()) { web.goBack(); return true; }
+        return false;
+    }
+
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (immersive) {   // Back leaves full screen first, like a second double tap
-            web.evaluateJavascript("document.body.classList.contains('full') && actions.full()", null);
-            setBarsHidden(false);
-        } else if (web.canGoBack()) {
-            web.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (!goBack()) super.onBackPressed();
     }
 
     @Override
