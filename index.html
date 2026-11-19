@@ -202,7 +202,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.18';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.19';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -879,6 +879,16 @@ const actions = {
     await showCode(await setRecovery(pw));
     route();
   },
+  async removePw() {
+    const old = await askPassword('Enter your current password to remove it');
+    if (!old) return;
+    try { await deriveKey(old, await get('salt')).then(async k => unseal(k, await get('index'))); } catch { return toast('Wrong password'); }
+    if (!confirm('Remove the password? Anyone holding your phone will be able to open your archive, and new backup files won\'t be protected. You can add a password again any time.')) return;
+    toast('Removing the password…');
+    await rekey(''); await put('nopw', new Uint8Array([1])); await del('rec'); noPw = true;
+    document.body.classList.add('nopw');
+    toast('Password removed', 4000); route();
+  },
   async newCode() {
     const pw = await askPassword('Enter your password to make a new recovery code (the old one will stop working)');
     if (!pw) return;
@@ -1465,7 +1475,8 @@ function showSettings() {
   main.innerHTML = `<h2 class="heading">Password &amp; recovery code</h2>
     ${noPw ? `<p><b style="color:var(--red)">Your archive has no password.</b> Anyone holding your phone can open it, and its backup files can be read by anyone who gets them.</p>
     <p><button data-do="addPw">Add a password</button></p>` : `<p id="recnote" class="muted"></p>
-    <p><button data-do="newCode">Make a new recovery code</button> <button data-do="changePw">Change password</button></p>`}
+    <p><button data-do="newCode">Make a new recovery code</button> <button data-do="changePw">Change password</button></p>
+    <p><button data-do="removePw">Remove password</button></p>`}
     <h2 class="heading">Backup &amp; moving to another phone</h2>
     <p>${noPw ? 'Without a password the backup file is not protected, so keep it somewhere private.' : "The backup file is encrypted with your password, so it can't be read without it."} Send it to yourself any way you like
        (cable, Drive, WhatsApp), then on the new phone open the app and choose "Restore from a backup file".</p>
