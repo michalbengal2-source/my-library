@@ -197,7 +197,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.13';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.14';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -1039,24 +1039,26 @@ addEventListener('scroll', () => {
 addEventListener('resize', updatePos);
 
 const INTRO = [
-  ['📚', 'Welcome to My Library', `<p>My Library is a personal archive for the fanfics you love.</p>
+  ['Welcome to My Library', `<p>My Library is a personal archive for the fanfics you love.</p>
     <p>It was made after the archive went down, and readers found out they had no copy of the stories they loved and nowhere to keep them.
     My Library keeps your own copy, so your favourite stories stay with you.</p>`],
-  ['🔒', 'Private by design', `<p>My Library doesn't send anything anywhere. There are no accounts, no servers and no tracking.</p>
+  ['Private by design', `<p>My Library doesn't send anything anywhere. There are no accounts, no servers and no tracking.</p>
     <p>Every fic you add is saved <b>only on this phone</b>, locked with your password. Nobody else can see your library, not even the app's creator.</p>`],
-  ['⬇️', 'Adding fics', `<p>Because the app never goes online, you add the fics yourself:</p>
-    <ol><li>Open the fic on AO3.</li><li>Tap <b>Download</b> and choose <b>HTML</b> (EPUB and PDF work too).</li>
-    <li>In My Library tap <b>+ Add</b> and choose the file, or share the file to My Library.</li></ol>`],
-  ['🔄', 'Keeping fics up to date', `<p>Nothing updates by itself.</p>
+  ['Adding fics', `<p>Because the app never goes online, you add the fics yourself:</p>
+    <ol><li>Open the fic on AO3.</li><li>Tap <b>Download</b> and choose <b>HTML</b>.</li>
+    <li>In My Library tap <b>+ Add</b> and choose the file, or share the file to My Library.</li></ol>
+    <p>EPUB and PDF files work too, but HTML comes in best: tags, notes and chapters arrive exactly as on AO3.</p>`],
+  ['Keeping fics up to date', `<p>Nothing updates by itself.</p>
     <p>When a fic gets new chapters, download its file again from AO3, open the fic in My Library and tap <b>Update</b>.
-    Your reading place, cover and rating are kept.</p>`],
-  ['🔑', 'Your password', `<p>Your password locks the library. When you create it, you'll get a <b>recovery code</b>: write it down.
+    Your reading place, cover and rating are kept.</p>
+    <p>Yes, it's a little more effort, but it's worth it: it's what keeps your library completely private.</p>`],
+  ['Your password', `<p>Your password locks the library. When you create it, you'll get a <b>recovery code</b>: write it down.
     It's the only way back in if you forget the password.</p>
     <p>Make a backup file from time to time (⚙ Settings). It's also how you move your library to a new phone.</p>`],
 ];
 function showIntro(done, i = 0) {
-  const [icon, title, body] = INTRO[i], last = i === INTRO.length - 1;
-  main.innerHTML = `<div class="intro"><div class="slide"><p class="big">${icon}</p><h2>${title}</h2>${body}</div>
+  const [title, body] = INTRO[i], last = i === INTRO.length - 1;
+  main.innerHTML = `<div class="intro"><div class="slide"><h2>${title}</h2>${body}</div>
     <p class="dots">${INTRO.map((_, k) => k === i ? '<b>●</b>' : '●').join('')}</p>
     <div class="nav"><button id="ib" ${i ? '' : 'style="visibility:hidden"'}>Back</button>
       ${last ? '' : '<button id="is" class="link">Skip</button>'}<button id="in">${last ? 'Start' : 'Next'}</button></div></div>`;
