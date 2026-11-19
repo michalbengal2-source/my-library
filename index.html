@@ -186,7 +186,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.7';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.9';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -684,7 +684,11 @@ const actions = {
   lock: start,
   top: () => scrollTo(0, 0),
   // In-app full screen: hides only the app's own bar, so Chrome shows no "exit full screen" notice
-  full: () => document.body.classList.toggle('full'),
+  full() {   // hides the app's red bar and, through the phone's real full screen, Android's own bars too
+    const on = document.body.classList.toggle('full');
+    if (on && !document.fullscreenElement) document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+    if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  },
   size(arg) { const [k, d] = arg.split(','); pref(k, Math.min(28, Math.max(10, size(k) + +d))); applySizes(); if (location.hash === '#settings') route(); },
   async create() {
     const pw = await askPassword('Choose a password (at least 4 characters). If you forget it, the library cannot be recovered.');
@@ -802,6 +806,8 @@ document.addEventListener('click', e => {
   if (b) actions[b.dataset.do](b.dataset.arg);
 });
 const reading = () => location.hash.startsWith('#w/');
+// leaving the phone's full screen with Android's back gesture also brings the red bar back
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('full'); });
 main.addEventListener('dblclick', e => {   // double tap on the text toggles full screen
   if (reading() && !e.target.closest('a, button, select')) { getSelection().removeAllRanges(); actions.full(); }
 });
@@ -854,7 +860,7 @@ function route() {
   $('#menu').hidden = !(view === '' || view === 'shelf');   // sorting and filtering exist only for Works and Bookshelf
   if ($('#menu').hidden) $('#menu').textContent = '☰';
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
-  if (view !== 'w') document.body.classList.remove('full');
+  if (view !== 'w') { document.body.classList.remove('full'); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); }
   const y = restoreY; restoreY = null;
   if (view === 'w') return showWork(id, ch).then(() => {
     const sec = $('section.chapter');
@@ -948,15 +954,18 @@ function blurb(m, extra = '') {
     ${groups.filter(g => g.ids.includes(m.id)).map(g => `<p class="series">Part <b>${g.ids.indexOf(m.id) + 1}</b> of <a href="#g/${g.id}"><b>${esc(g.name)}</b></a></p>`).join('')}
     ${m.newFrom != null && (m.last ?? -1) < m.newFrom ? `<p class="new">✦ ${m.count - m.newFrom} new chapter${m.count - m.newFrom > 1 ? 's' : ''}</p>` : ''}
     <dl class="stats">${lang ? `<dt>Language:</dt> <dd>${esc(lang)}</dd>` : ''}
-      <dt>Words:</dt> <dd>${esc(m.words)}</dd> <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
-      ${STATS.filter(k => stat(m, k)).map(k => `<dt>${k}:</dt> <dd>${stat(m, k).toLocaleString('en')}</dd>`).join(' ')}
+      <dt>Words:</dt> <dd>${esc(m.words)}</dd>
+      ${m.kind === 'book' ? '' : `<dt>Kudos:</dt> <dd>${stat(m, 'Kudos')?.toLocaleString('en') ?? '–'}</dd>`}
+      <dt>Chapters:</dt> <dd>${esc(m.chapters)}</dd>
+      ${STATS.filter(k => k !== 'Kudos' && stat(m, k) != null).map(k => `<dt>${k}:</dt> <dd>${stat(m, k).toLocaleString('en')}</dd>`).join(' ')}
       ${m.rating ? `<dt>My Rating:</dt> <dd>${m.rating}/10</dd>` : ''}
       <dt>Read:</dt> <dd>${m.last == null ? 'Not yet' : 'Ch. ' + (m.last + 1)}</dd></dl>${extra}
   </li>`;
 }
 
 /* Kudos, hits etc. as they were in the HTML file when it was added (or last updated) */
-const stat = (m, k) => +(tagsOf(m, /^stats/i).join(' ').match(new RegExp(k + ':\\s*([\\d,]+)', 'i'))?.[1].replace(/,/g, '') || 0);
+// null when the file didn't have the number at all (so it is shown as "–" and sorted last, not as 0)
+const stat = (m, k) => { const v = tagsOf(m, /^stats/i).join(' ').match(new RegExp(k + ':\\s*([\\d,]+)', 'i'))?.[1]; return v ? +v.replace(/,/g, '') : null; };
 const STATS = ['Comments', 'Kudos', 'Bookmarks', 'Hits'];
 const SORTS = {
   updated: ['Date Updated', m => m.date || ''], added: ['Date Added', m => m.added], read: ['Recently Read', m => m.readAt || 0],
@@ -1002,7 +1011,8 @@ function filterPanel() {
 function filtered() {
   const [, val, asc] = SORTS[pref('sort')] || SORTS.updated, here = index.filter(inView);
   return here.filter(m => m.kind !== 'book' && [...filters.inc].every(k => hasTag(m, k)) && ![...filters.exc].some(k => hasTag(m, k)))
-    .sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (asc ? 1 : -1))
+    .sort((a, b) => { const x = val(a), y = val(b);   // works without the number always go last
+      return x == null || y == null ? (x == null) - (y == null) : (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1); })
     .concat(here.filter(m => m.kind === 'book'));   // books are never filtered or sorted: they stay in the order added
 }
 
