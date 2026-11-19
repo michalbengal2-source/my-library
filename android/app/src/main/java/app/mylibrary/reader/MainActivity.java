@@ -206,7 +206,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    void setImmersive(boolean on) {
+    void setBarsHidden(boolean on) {
         immersive = on;
         if (on) bars.hide(WindowInsetsCompat.Type.systemBars());
         else bars.show(WindowInsetsCompat.Type.systemBars());
@@ -217,7 +217,7 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (immersive) {   // Back leaves full screen first, like a second double tap
             web.evaluateJavascript("document.body.classList.contains('full') && actions.full()", null);
-            setImmersive(false);
+            setBarsHidden(false);
         } else if (web.canGoBack()) {
             web.goBack();
         } else {
@@ -285,7 +285,7 @@ public class MainActivity extends Activity {
     /** What the page can ask of the app (window.Native) */
     class Bridge {
         @JavascriptInterface
-        public void setImmersive(boolean on) { runOnUiThread(() -> MainActivity.this.setImmersive(on)); }
+        public void setImmersive(boolean on) { runOnUiThread(() -> setBarsHidden(on)); }
 
         @JavascriptInterface
         public void setBarColor(String color) {
