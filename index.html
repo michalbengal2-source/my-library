@@ -74,6 +74,22 @@
   ul.tags li:not(:last-child)::after { content:", "; }
   ul.tags .warnings .tag { font-weight:bold; border:0; }
   blockquote.summary { margin:10px 0 0; }
+  /* AO3 work skins aren't part of downloaded files, so the app draws the popular ones itself.
+     iMessage-style texts (classes imessage / in / out / contact / time) */
+  main dl.imessage { margin:0; padding:0; font-family:-apple-system, Roboto, Arial, sans-serif; }
+  main dl.imessage.grouptext, main dl.imessage:not(dl.imessage dl.imessage) { max-width:30em; margin:1.2em auto; }
+  main dl.imessage.border { border:1px solid #d6d6db; border-radius:18px; padding:.8em .9em 1em; background:#fff; }
+  main dl.imessage h2.contact { text-align:center; font-size:.95rem; font-weight:600; margin:0 0 .4em; padding-bottom:.5em; border-bottom:1px solid #eee; }
+  main dl.imessage h6.time { text-align:center; color:#8e8e93; font-size:.78rem; font-weight:normal; margin:.9em 0 .5em; }
+  main dl.imessage h6.time b { color:#6e6e73; }
+  main dl.imessage .in, main dl.imessage .out { display:flex; flex-direction:column; margin:.45em 0; }
+  main dl.imessage .out { align-items:flex-end; }
+  main dl.imessage .in { align-items:flex-start; }
+  main dl.imessage dt { color:#8e8e93; font-size:.78rem; margin:0 0 .15em .9em; font-weight:normal; }
+  main dl.imessage dt:empty, main dl.imessage .out dt { display:none; }
+  main dl.imessage dd { margin:.12em 0; padding:.45em .85em; border-radius:18px; max-width:78%; width:fit-content; line-height:1.35; overflow-wrap:anywhere; }
+  main dl.imessage .in dd { background:#e9e9eb; color:#000; }
+  main dl.imessage .out dd { background:#0a84ff; color:#fff; }
   .work, .blurb, .meta, .module { overflow-wrap:anywhere; word-break:break-word; }   /* long links in notes wrap instead of running off the screen */
   .work img, .work table { max-width:100%; }
   dl.stats { display:flex; flex-wrap:wrap; gap:4px 16px; justify-content:flex-start; margin:10px 0 0; font-size:.9em; }
@@ -351,7 +367,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.27';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.28';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
