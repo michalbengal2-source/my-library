@@ -176,6 +176,7 @@
   dialog.soft menu button { flex:1; padding:12px; border-radius:999px; font-size:1rem; border:2px solid var(--red); background:#fff; color:var(--red); }
   dialog.soft menu button.primary { background:var(--red); color:#fff; }
   dialog.soft menu button:disabled { opacity:.4; }
+  dialog.soft .rerr { color:#c00; text-align:center; min-height:1.2em; margin:-10px 0 6px; font-size:.95rem; }
   dialog.soft menu.stack { flex-direction:column; margin-top:16px; }
   dialog.soft .readttl { font-weight:bold; font-size:1.1rem; text-align:center; margin-bottom:10px; }
   dialog.soft p.center { text-align:center; color:#444; margin:0 0 6px; padding:0; }
@@ -294,6 +295,13 @@
   <input id="kdlg-n" class="numbox" inputmode="numeric" autocomplete="off" placeholder="Tap to type the number">
   <menu><button value="">Cancel</button><button value="ok" class="primary">Save</button></menu>
 </form></dialog>
+<dialog id="rdlg" class="soft"><form method="dialog">
+  <h3>Your rating</h3>
+  <p class="center">You can rate from 1 to 10, with halves or decimals too (like 8.5)</p>
+  <input id="rdlg-n" class="numbox" inputmode="decimal" autocomplete="off" placeholder="Tap to type 1–10">
+  <p id="rdlg-err" class="rerr"></p>
+  <menu><button value="">Cancel</button><button value="ok" class="primary">Save</button></menu>
+</form></dialog>
 <dialog id="idlg" class="soft"><form method="dialog">
   <h3 id="idlg-t"></h3><div id="idlg-m"></div>
   <menu><button value="ok" class="primary">Got it</button></menu>
@@ -335,7 +343,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.25';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.26';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -391,6 +399,20 @@ function toast(t, ms = 3500) { const el = $('#toast'); el.textContent = t; el.hi
 function info(title, html) {
   const d = $('#idlg'); $('#idlg-t').textContent = title; $('#idlg-m').innerHTML = html;
   d.showModal(); return new Promise(ok => d.onclose = ok);
+}
+// rating 1–10, decimals allowed ("8.5" or "8,5"); empty removes it; anything else asks again
+function askRating(now) {
+  const d = $('#rdlg'), n = $('#rdlg-n'), err = $('#rdlg-err');
+  n.value = now ?? ''; err.textContent = ''; d.returnValue = '';
+  d.showModal(); setTimeout(() => n.focus(), 50);
+  return new Promise(ok => {
+    d.querySelector('form').onsubmit = e => {
+      if (e.submitter?.value !== 'ok') return;
+      const t = n.value.trim().replace(',', '.'), v = +t;
+      if (t && !(/^\d+(\.\d+)?$/.test(t) && v >= 1 && v <= 10)) { e.preventDefault(); err.textContent = 'Only a number from 1 to 10'; }
+    };
+    d.onclose = () => { const t = n.value.trim().replace(',', '.'); ok(d.returnValue !== 'ok' ? null : t ? Math.round(+t * 100) / 100 : ''); };
+  });
 }
 function askKudos(now) {   // empty = no kudos number
   const d = $('#kdlg'), n = $('#kdlg-n'); n.value = now != null ? now.toLocaleString('en') : ''; d.returnValue = '';
@@ -1204,6 +1226,12 @@ const actions = {
     }
     printJob.files = files; renderExport();
   },
+  async rate(id) {
+    const m = index.find(x => x.id === id), v = await askRating(m.rating);
+    if (v === null) return;
+    m.rating = v || undefined;
+    await saveIndex(); toast(v ? `Rated ${v}/10` : 'Rating removed'); route();
+  },
   async newGroup() { if (await makeGroup()) route(); },
   async toggleRead(id) {
     const m = index.find(x => x.id === id); m.unread = !m.unread;
@@ -1757,8 +1785,7 @@ async function showWork(id, ch) {
       <button data-do="full">⛶ Full</button>
       <div class="pair"><button data-do="size" data-arg="fs,-1" aria-label="Smaller text">A−</button><button data-do="size" data-arg="fs,1" aria-label="Bigger text">A+</button></div>
       ${m.kind === 'book' ? '' : `<button data-do="setStats" data-arg="${id}">Kudos</button>`}
-      <select class="ratesel" data-id="${id}" aria-label="My rating"><option value="">${m.rating ? '★ ' + m.rating + '/10' : '★ Rating'}</option>${[...Array(10)].map((_, r) =>
-        `<option value="${r + 1}" ${m.rating === r + 1 ? 'selected' : ''}>★ ${r + 1}/10</option>`).join('')}</select>
+      <button data-do="rate" data-arg="${id}">${m.rating ? '★ ' + m.rating + '/10' : '★ Rating'}</button>
       ${n > 1 ? '' : `<button data-do="cover" data-arg="${id}">${m.cover ? 'Cover' : 'Add Cover'}</button><a class="btn" href="#export/${id}">Print</a>
         <button data-do="add" data-arg="${id}">Update</button>`}
       <select class="moresel" data-id="${id}" aria-label="More"><option value="">More</option>
