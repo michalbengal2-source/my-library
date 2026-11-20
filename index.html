@@ -335,7 +335,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.24';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.25';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -1349,7 +1349,7 @@ const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.styl
 
 /* ---------- Screens ---------- */
 /* Lists keep their scroll spot: coming back from a fic returns to where you were in the list */
-const listY = {}, isList = h => /^#?(|shelf|unread|groups|g\/.*|s\/.*)$/.test(h);
+const listY = {}, isList = h => /^#?(|shelf|unread|groups|[gsa]\/.*)$/.test(h);
 let shownHash = null;
 const unreadOff = () => pref('unreadOff') === 'off';
 function route() {
@@ -1388,6 +1388,7 @@ function route() {
   else if (view === 'groups') showGroups();
   else if (view === 'g') showGroup(id);
   else if (view === 's') showSeries(decodeURIComponent(id));
+  else if (view === 'a') showAuthor(decodeURIComponent(id));
   else showList();
   backToListSpot(here);
 }
@@ -1521,13 +1522,23 @@ const seriesBar = m => sequencesOf(m).map(({ name, href, works }) => {
     ${next ? `<a href="${openLink(next)}">${esc(next.title)} →</a>` : '<span></span>'}</div>`;
 }).join('');
 
+const authorLink = a => `<a class="tag" href="#a/${encodeURIComponent(a)}">${esc(a)}</a>`;
+/* An author's page: every fic of theirs that's in the archive */
+function showAuthor(name) {
+  const works = index.filter(m => m.kind !== 'book' && authorsOf(m).includes(name))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  document.title = name;
+  main.innerHTML = `<h2 class="heading">${works.length} Work${works.length === 1 ? '' : 's'} by ${esc(name)}</h2>
+    <div id="out"><ol class="works">${works.map(m => blurb(m)).join('')}</ol></div>`;
+}
+
 function blurb(m, extra = '') {
   const tag = (gi, t) => `<span class="tag" data-k="${esc(gi + '|' + t)}">${esc(t)}</span>`;
   const group = (gi, cls) => GROUPS[gi][1](m).map(t => `<li class="${cls}">${tag(gi, t)}</li>`).join('');
   const lang = tagsOf(m, /^language/i).join(', ');
   return `<li class="blurb">
     <div class="hd">${m.kind === 'book' ? '' : required(m)}
-      <div class="ttl"><h4><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a> by ${authorsOf(m).map(a => tag(7, a)).join(', ')}</h4>
+      <div class="ttl"><h4><a href="#w/${m.id}/${m.last ?? 0}">${esc(m.title)}</a> by ${authorsOf(m).map(authorLink).join(', ')}</h4>
         <h5>${GROUPS[3][1](m).map(t => tag(3, t)).join(', ')}</h5></div>
       <p class="date">${fmtDate(m.date)}</p></div>
     <ul class="tags">${group(1, 'warnings')}${group(5, '')}${group(4, '')}${group(6, '')}</ul>
@@ -1764,7 +1775,7 @@ async function showWork(id, ch) {
     <div class="work">
       <div class="preface">
         ${m.cover && i === 0 ? `<img class="cover-big" src="${await getCover(id)}" alt="">` : ''}
-        <h2 class="title">${esc(m.title)}</h2><h3 class="byline">${esc(m.author)}</h3><hr class="line">
+        <h2 class="title">${esc(m.title)}</h2><h3 class="byline">${m.kind === 'book' ? esc(m.author) : authorsOf(m).map(authorLink).join(', ')}</h3><hr class="line">
         ${i === 0 ? module((m.summary ? `<p>Summary</p><blockquote>${m.summary}</blockquote>` : '') + (w.notes ? `<p>Notes</p><blockquote>${w.notes}</blockquote>` : '')) : ''}
       </div>
       <div id="chapters">${chapterHTML(c, i, n)}</div>
