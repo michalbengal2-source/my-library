@@ -74,6 +74,8 @@
   ul.tags li:not(:last-child)::after { content:", "; }
   ul.tags .warnings .tag { font-weight:bold; border:0; }
   blockquote.summary { margin:10px 0 0; }
+  .work, .blurb, .meta, .module { overflow-wrap:anywhere; word-break:break-word; }   /* long links in notes wrap instead of running off the screen */
+  .work img, .work table { max-width:100%; }
   dl.stats { display:flex; flex-wrap:wrap; gap:4px 16px; justify-content:flex-start; margin:10px 0 0; font-size:.9em; }
   dl.stats > div { white-space:nowrap; }
   dl.stats dt, dl.stats dd { display:inline; margin:0; }
@@ -182,8 +184,14 @@
   dialog.soft p.center { text-align:center; color:#444; margin:0 0 6px; padding:0; }
   dialog.soft .readall { display:flex; justify-content:center; gap:22px; margin:2px 0 8px; }
   .readlist { max-height:46vh; overflow:auto; border-top:1px solid #f0e6e6; }
-  .readrow { display:flex; align-items:center; gap:6px; padding:9px 2px; border-bottom:1px solid #f0e6e6; }
-  .readrow span { flex:1; font-size:.95rem; line-height:1.3; }
+  .readrow { padding:9px 2px; border-bottom:1px solid #f0e6e6; }
+  .readrow span { display:block; font-size:.95rem; line-height:1.3; margin-bottom:6px; }
+  .rctl { display:flex; gap:6px; align-items:center; }
+  .rctl .kbox { width:84px; margin:0 0 0 auto; padding:5px 8px; font-size:.85rem; border:1px solid #ddd; border-radius:999px; text-align:center; outline:none; }
+  .rctl .kbox:focus { border-color:var(--red); }
+  .klbl { display:block; text-align:center; font-weight:bold; margin-top:12px; color:#333; }
+  .klbl span { font-weight:normal; color:#777; font-size:.9rem; }
+  .klbl .numbox { margin:8px 0 0; font-size:1.3rem; padding:12px; }
   .readrow .pick { flex:none; min-width:0; padding:5px 10px; font-size:.82rem; border-radius:999px; border:1px solid #ddd; background:#fff; color:#777; box-shadow:none; }
   .readrow .pick.on { background:#fbeaea; border-color:#e3b5b5; color:var(--red); font-weight:bold; }
   /* open fics as tabs: a small bar at the bottom */
@@ -343,7 +351,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.26';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.27';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -419,27 +427,41 @@ function askKudos(now) {   // empty = no kudos number
   d.showModal(); setTimeout(() => n.focus(), 50);
   return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? n.value : null));
 }
-/* New fics: right after adding, ask whether each was read already or goes to "Not read yet" (a fixed collection with its own tab).
-   One fic: a short question. Several at once: one calm list, every fic answered with a tap. */
-function askRead(list) {
-  const d = $('#readdlg'), body = $('#readdlg-b'), menu = $('#readdlg-m'), ans = {};
+/* New fics: right after adding, ask whether each was read already or goes to "Not read yet" (a fixed collection with its own tab),
+   and offer to type its kudos (optional, can be added later). One fic: a short question. Several at once: one calm list. */
+const kudosNum = v => { const n = parseInt(String(v).replace(/\D/g, '')); return Number.isNaN(n) ? undefined : n; };
+function askNew(list) {
+  const d = $('#readdlg'), body = $('#readdlg-b'), menu = $('#readdlg-m'), ans = {}, ask = !unreadOff();
+  const kbox = m => m.kind === 'book' ? '' : `<input class="kbox" data-k="${m.id}" inputmode="numeric" autocomplete="off" placeholder="Kudos">`;
+  const finish = () => list.forEach(m => {
+    const v = kudosNum(d.querySelector(`.kbox[data-k="${m.id}"]`)?.value ?? '');
+    if (v !== undefined) m.kudos = v;
+    if (ask) m.unread = list.length === 1 ? d.returnValue === 'unread' : !ans[m.id];
+  });
   $('#readdlg-t').textContent = 'Upload complete';
   d.oncancel = e => e.preventDefault();   // an answer is needed
   d.returnValue = '';
   if (list.length === 1) {
-    body.innerHTML = `<p class="readttl">${esc(list[0].title)}</p><p class="center">Have you read this fic, or should it go to your Not read yet list?</p>`;
-    menu.className = 'stack';
-    menu.innerHTML = `<button value="read">I've read it</button><button value="unread" class="primary">Add to Not read yet</button>`;
-    d.showModal();
-    return new Promise(ok => d.onclose = () => { list[0].unread = d.returnValue === 'unread'; ok(); });
+    const m = list[0];
+    body.innerHTML = `<p class="readttl">${esc(m.title)}</p>
+      ${ask ? '<p class="center">Have you read this fic, or should it go to your Not read yet list?</p>' : ''}
+      ${m.kind === 'book' ? '' : `<label class="klbl">Kudos on AO3 <span>(optional, you can add it later)</span>${kbox(m).replace('class="kbox"', 'class="kbox numbox"')}</label>`}`;
+    menu.className = ask ? 'stack' : '';
+    menu.innerHTML = ask ? `<button value="read">I've read it</button><button value="unread" class="primary">Add to Not read yet</button>`
+      : `<button value="later">Later</button><button value="ok" class="primary">Save</button>`;
+    d.showModal(); document.activeElement?.blur();   // no keyboard until the kudos box is tapped
+    return new Promise(ok => d.onclose = () => { finish(); ok(); });
   }
+  const kept = {};   // typed kudos survive redrawing the list
   const draw = () => {
-    body.innerHTML = `<p class="center">${list.length} fics were added. Which ones have you read?</p>
-      <p class="readall"><button type="button" class="link" data-all="1">All read</button><button type="button" class="link" data-all="0">None read</button></p>
-      <div class="readlist">${list.map(m => `<div class="readrow"><span>${esc(m.title)}</span>
-        <button type="button" class="pick ${ans[m.id] === true ? 'on' : ''}" data-r="${m.id}|1">Read</button>
-        <button type="button" class="pick ${ans[m.id] === false ? 'on' : ''}" data-r="${m.id}|0">Not yet</button></div>`).join('')}</div>`;
-    menu.className = ''; menu.innerHTML = `<button value="ok" class="primary" ${list.some(m => ans[m.id] === undefined) ? 'disabled' : ''}>Save</button>`;
+    d.querySelectorAll('.kbox').forEach(i => kept[i.dataset.k] = i.value);
+    body.innerHTML = `<p class="center">${list.length} fics were added. ${ask ? 'Which ones have you read?' : ''} Kudos are optional, you can add them later.</p>
+      ${ask ? '<p class="readall"><button type="button" class="link" data-all="1">All read</button><button type="button" class="link" data-all="0">None read</button></p>' : ''}
+      <div class="readlist">${list.map(m => `<div class="readrow"><span>${esc(m.title)}</span><div class="rctl">
+        ${ask ? `<button type="button" class="pick ${ans[m.id] === true ? 'on' : ''}" data-r="${m.id}|1">Read</button>
+        <button type="button" class="pick ${ans[m.id] === false ? 'on' : ''}" data-r="${m.id}|0">Not yet</button>` : ''}${kbox(m)}</div></div>`).join('')}</div>`;
+    d.querySelectorAll('.kbox').forEach(i => i.value = kept[i.dataset.k] || '');
+    menu.className = ''; menu.innerHTML = `<button value="ok" class="primary" ${ask && list.some(m => ans[m.id] === undefined) ? 'disabled' : ''}>Save</button>`;
   };
   body.onclick = e => {
     const r = e.target.dataset.r, all = e.target.dataset.all;
@@ -448,8 +470,8 @@ function askRead(list) {
     else return;
     const y = $('.readlist')?.scrollTop; draw(); if ($('.readlist')) $('.readlist').scrollTop = y;
   };
-  draw(); d.showModal();
-  return new Promise(ok => d.onclose = () => { list.forEach(m => m.unread = !ans[m.id]); ok(); });
+  draw(); d.showModal(); document.activeElement?.blur();
+  return new Promise(ok => d.onclose = () => { finish(); ok(); });
 }
 
 const EXTRA = Symbol('extra');
@@ -985,7 +1007,8 @@ async function importFiles(files, id) {
     notes.push(!old ? `Added: ${meta.title}` : added > 0 ? `${meta.title}: ${added} new chapter${added > 1 ? 's' : ''}` : `${meta.title}: no new chapters`);
   }
   await saveIndex();
-  if (fresh.length && !unreadOff()) { await askRead(fresh.filter(m => index.includes(m))); await saveIndex(); }
+  const asked = fresh.filter(m => index.includes(m) && (!unreadOff() || m.kind !== 'book'));
+  if (asked.length) { await askNew(asked); await saveIndex(); }
   const warn = notes.filter(n => / of \d+ chapters/.test(n));
   toast(warn.length ? warn.join(' · ') : notes.length > 2 ? `${notes.length} works added or updated` : notes.join(' · '), warn.length ? 15000 : 3500);
   id ? route() : location.hash === '' ? route() : location.hash = '';
@@ -1052,7 +1075,10 @@ document.addEventListener('visibilitychange', () => {
 
 /* ---------- Actions ---------- */
 const actions = {
-  go: v => location.hash = v,
+  go(v) {   // Works tapped while already there: back to the top of the list (once more resets the remembered spot)
+    if (!v && location.hash.replace('#', '') === '') { delete listY['']; scrollTo(0, 0); updatePos(); return; }
+    location.hash = v;
+  },
   lock: start,
   top: () => scrollTo(0, 0),
   // In-app full screen: hides only the app's own bar, so Chrome shows no "exit full screen" notice
@@ -1271,11 +1297,14 @@ const reading = () => location.hash.startsWith('#w/');
 
 /* Back inside a fic: the first Back goes to the start of the fic, the next one back to the list (at the spot you were in it).
    Going to the start doesn't change where the fic remembers you stopped, until you start scrolling there yourself. */
-let hold = null;
+let hold = null, cameFrom = null;
 function appBack() {
   if (!reading() || !reader) return false;
   const [, id, ch] = location.hash.slice(1).split('/');
-  if (!+ch && scrollY < 40) return false;   // already at the start: leave the fic
+  if (!+ch && scrollY < 40) {   // already at the start: leave the fic, to the list it was opened from
+    if (cameFrom !== null) history.back(); else location.replace('#');
+    return true;
+  }
   hold = { id };
   if (+ch) location.replace(`#w/${id}/0`); else { scrollTo(0, 0); updatePos(); }
   return true;
@@ -1385,6 +1414,7 @@ function route() {
   document.body.classList.toggle('nounread', unreadOff());
   if (unreadOff() && location.hash === '#unread') return location.replace('#');
   if (shownHash !== null && isList(shownHash)) listY[shownHash] = scrollY;
+  if (location.hash.startsWith('#w/') && !(shownHash || '').startsWith('#w/')) cameFrom = shownHash !== null && isList(shownHash) ? shownHash : null;
   const here = shownHash = location.hash;
   const [view, id, ch] = location.hash.slice(1).split('/');
   if (view !== 'w' || id !== hold?.id) hold = null;

@@ -125,6 +125,16 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 loaded = true;
             }
+
+            /** Android may stop the page while the app is in the background (to free memory).
+             *  Instead of closing with an error, the app simply starts again; the page reopens where you were. */
+            @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                root.removeView(web);
+                web.destroy();
+                recreate();
+                return true;
+            }
         });
 
         web.setWebChromeClient(new WebChromeClient() {
@@ -153,15 +163,8 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33)
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
 
-        if (state != null) web.restoreState(state);
-        else web.loadUrl("https://" + HOST + "/assets/index.html");
+        web.loadUrl("https://" + HOST + "/assets/index.html");   // the page itself remembers the screen and spot
         receive(getIntent());
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle out) {
-        super.onSaveInstanceState(out);
-        web.saveState(out);
     }
 
     @Override
