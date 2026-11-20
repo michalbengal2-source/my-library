@@ -151,7 +151,7 @@ public class MainActivity extends Activity {
 
         // Back: Android 13+ (and required from Android 16) uses a back callback; older phones call onBackPressed
         if (Build.VERSION.SDK_INT >= 33)
-            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> { if (!goBack()) finish(); });
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
 
         if (state != null) web.restoreState(state);
         else web.loadUrl("https://" + HOST + "/assets/index.html");
@@ -218,22 +218,24 @@ public class MainActivity extends Activity {
         else bars.show(WindowInsetsCompat.Type.systemBars());
     }
 
-    /** Back inside the app: leaves full screen first (like a second double tap), then goes to the previous screen.
-     *  Returns false when there's nowhere left to go back to. */
-    boolean goBack() {
+    /** Back inside the app: leaves full screen first (like a second double tap). Inside a fic the page decides
+     *  (first Back = start of the fic); otherwise it goes to the previous screen, and closes the app when there's none. */
+    void goBack() {
         if (immersive) {
             web.evaluateJavascript("document.body.classList.contains('full') && actions.full()", null);
             setBarsHidden(false);
-            return true;
+            return;
         }
-        if (web.canGoBack()) { web.goBack(); return true; }
-        return false;
+        web.evaluateJavascript("typeof appBack === 'function' && appBack()", r -> {
+            if ("true".equals(r)) return;
+            if (web.canGoBack()) web.goBack(); else finish();
+        });
     }
 
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (!goBack()) super.onBackPressed();
+        goBack();
     }
 
     @Override

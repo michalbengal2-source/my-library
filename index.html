@@ -35,9 +35,9 @@
   body.hide-bar header { transform: translateY(-100%); }   /* bar slides away while scrolling down a chapter */
   body.full header { display:none !important; }            /* full screen: no bar at all */
   .tabs { flex-basis:100%; display:flex; margin-top:6px; }
-  .tabs button { flex:1; background:none; border:0; border-radius:0; color:#ffffffb0; padding:8px 0; border-bottom:3px solid transparent; }
+  .tabs button { flex:auto; background:none; border:0; border-radius:0; color:#ffffffb0; padding:8px 3px; border-bottom:3px solid transparent; font-size:.8rem; white-space:nowrap; min-width:0; }
   .tabs button.on { color:#fff; font-weight:bold; border-bottom-color:#fff; }
-  .tabs .hbtn { flex:none; color:#fff; padding:8px 10px; white-space:nowrap; }
+  .tabs .hbtn { flex:none; color:#fff; padding:8px 6px; white-space:nowrap; }
   .tabs #menu { font-size:1.25rem; padding:4px 10px; }
   .tabs #menu[hidden] { display:inline-block !important; visibility:hidden; }   /* keeps the tabs in place */
   main { max-width:900px; margin:0 auto; padding:12px; }
@@ -163,7 +163,43 @@
   dialog input { width:100%; font-size:1.3rem; padding:8px; margin:8px 0; }
   dialog menu { display:flex; gap:8px; padding:0; margin:8px 0 0; }
   #dlg-err { color:#d33; min-height:1em; margin:0; }
+  /* soft dialogs (kudos, "have you read it?"): rounded, with a dim backdrop instead of the red one */
+  dialog.soft { border-radius:22px; padding:24px 22px 20px; width:min(88vw, 380px); box-shadow:0 10px 40px #0004; }
+  dialog.soft::backdrop { background:#0007; }
+  dialog.soft h3 { margin:0 0 14px; font-size:1.35rem; color:var(--red); text-align:center; }
+  dialog.soft p { margin:0 0 6px; line-height:1.5; font-size:1.02rem; }
+  dialog.soft .numbox { display:block; width:100%; box-sizing:border-box; margin:6px 0 18px; padding:16px; font-size:1.7rem; font-weight:bold;
+    text-align:center; letter-spacing:1px; border:2px solid #d9c7c7; border-radius:16px; background:#fbf7f7; outline:none; }
+  dialog.soft .numbox:focus { border-color:var(--red); background:#fff; box-shadow:0 0 0 4px #99000018; }
+  dialog.soft .numbox::placeholder { color:#c9b5b5; font-weight:normal; font-size:1.2rem; letter-spacing:0; }
+  dialog.soft menu { display:flex; gap:10px; margin:6px 0 0; padding:0; }
+  dialog.soft menu button { flex:1; padding:12px; border-radius:999px; font-size:1rem; border:2px solid var(--red); background:#fff; color:var(--red); }
+  dialog.soft menu button.primary { background:var(--red); color:#fff; }
+  dialog.soft menu button:disabled { opacity:.4; }
+  dialog.soft menu.stack { flex-direction:column; margin-top:16px; }
+  dialog.soft .readttl { font-weight:bold; font-size:1.1rem; text-align:center; margin-bottom:10px; }
+  dialog.soft p.center { text-align:center; color:#444; margin:0 0 6px; padding:0; }
+  dialog.soft .readall { display:flex; justify-content:center; gap:22px; margin:2px 0 8px; }
+  .readlist { max-height:46vh; overflow:auto; border-top:1px solid #f0e6e6; }
+  .readrow { display:flex; align-items:center; gap:6px; padding:9px 2px; border-bottom:1px solid #f0e6e6; }
+  .readrow span { flex:1; font-size:.95rem; line-height:1.3; }
+  .readrow .pick { flex:none; min-width:0; padding:5px 10px; font-size:.82rem; border-radius:999px; border:1px solid #ddd; background:#fff; color:#777; box-shadow:none; }
+  .readrow .pick.on { background:#fbeaea; border-color:#e3b5b5; color:var(--red); font-weight:bold; }
+  /* open fics as tabs: a small bar at the bottom */
+  #tabbar { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex; align-items:flex-end; gap:4px; overflow-x:auto;
+    padding:6px 8px 0; background:var(--red); scrollbar-width:none; }
+  #tabbar::-webkit-scrollbar { display:none; }
+  #tabbar[hidden] { display:none; }
+  body.hastabs main { padding-bottom:56px; }
+  .ftab { flex:none; display:flex; align-items:center; background:#7a0000; border-radius:12px 12px 0 0; max-width:44vw; }
+  .ftab.on { background:#fff; }
+  .ftab .tx { border:0; background:none; color:#ffffffbf; padding:9px 3px 9px 10px; min-width:0; font-size:.85rem; line-height:1; box-shadow:none; }
+  .ftab a { padding:9px 14px 9px 3px; color:#fff; text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:.92rem; }
+  .ftab.on .tx, .ftab.on a { color:var(--red); }
+  .ftab.on a { font-weight:bold; }
+  .blurb h4 a, a.book { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   body.nopw [data-do=lock] { display:none; }
+  body.nounread [data-tab=unread] { display:none; }
   button.link { background:none; border:0; box-shadow:none; color:var(--red); text-decoration:underline; padding:6px; min-width:0; }
   dialog menu button.link { background:none; border:0; color:var(--red); text-decoration:underline; padding:0; margin-inline-start:auto; }
   .intro { max-width:560px; margin:0 auto; padding:28px 18px 20px; min-height:80vh; display:flex; flex-direction:column; }
@@ -243,6 +279,7 @@
     <button data-do="go" data-arg="" data-tab="">Works</button>
     <button data-do="go" data-arg="shelf" data-tab="shelf">Bookshelf</button>
     <button data-do="go" data-arg="groups" data-tab="groups">Collections</button>
+    <button data-do="go" data-arg="unread" data-tab="unread">Unread</button>
     <button data-do="go" data-arg="medals" data-tab="medals">Medals</button>
     <button class="hbtn" id="menu" aria-label="Sort and filter">☰</button>
   </nav>
@@ -251,6 +288,20 @@
 <input type="file" id="pick" hidden>
 <div id="toast" hidden></div>
 <div id="pos"></div>
+<nav id="tabbar" hidden></nav>
+<dialog id="kdlg" class="soft"><form method="dialog">
+  <h3>Enter kudos</h3>
+  <input id="kdlg-n" class="numbox" inputmode="numeric" autocomplete="off" placeholder="Tap to type the number">
+  <menu><button value="">Cancel</button><button value="ok" class="primary">Save</button></menu>
+</form></dialog>
+<dialog id="idlg" class="soft"><form method="dialog">
+  <h3 id="idlg-t"></h3><div id="idlg-m"></div>
+  <menu><button value="ok" class="primary">Got it</button></menu>
+</form></dialog>
+<dialog id="readdlg" class="soft"><form method="dialog">
+  <h3 id="readdlg-t"></h3><div id="readdlg-b"></div>
+  <menu id="readdlg-m"></menu>
+</form></dialog>
 <dialog id="modedlg">
   <h3>How would you like to read?</h3>
   <div class="modes">
@@ -284,7 +335,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.23';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.24';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -335,6 +386,49 @@ const chName = (c, i) => c.title || 'Chapter ' + (i + 1);
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 const pref = (k, v) => { try { return v === undefined ? localStorage[k] : (localStorage[k] = v); } catch {} };
 function toast(t, ms = 3500) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, ms); }
+
+/* Our own dialogs instead of the phone's, which show the app's web address at the top */
+function info(title, html) {
+  const d = $('#idlg'); $('#idlg-t').textContent = title; $('#idlg-m').innerHTML = html;
+  d.showModal(); return new Promise(ok => d.onclose = ok);
+}
+function askKudos(now) {   // empty = no kudos number
+  const d = $('#kdlg'), n = $('#kdlg-n'); n.value = now != null ? now.toLocaleString('en') : ''; d.returnValue = '';
+  d.showModal(); setTimeout(() => n.focus(), 50);
+  return new Promise(ok => d.onclose = () => ok(d.returnValue === 'ok' ? n.value : null));
+}
+/* New fics: right after adding, ask whether each was read already or goes to "Not read yet" (a fixed collection with its own tab).
+   One fic: a short question. Several at once: one calm list, every fic answered with a tap. */
+function askRead(list) {
+  const d = $('#readdlg'), body = $('#readdlg-b'), menu = $('#readdlg-m'), ans = {};
+  $('#readdlg-t').textContent = 'Upload complete';
+  d.oncancel = e => e.preventDefault();   // an answer is needed
+  d.returnValue = '';
+  if (list.length === 1) {
+    body.innerHTML = `<p class="readttl">${esc(list[0].title)}</p><p class="center">Have you read this fic, or should it go to your Not read yet list?</p>`;
+    menu.className = 'stack';
+    menu.innerHTML = `<button value="read">I've read it</button><button value="unread" class="primary">Add to Not read yet</button>`;
+    d.showModal();
+    return new Promise(ok => d.onclose = () => { list[0].unread = d.returnValue === 'unread'; ok(); });
+  }
+  const draw = () => {
+    body.innerHTML = `<p class="center">${list.length} fics were added. Which ones have you read?</p>
+      <p class="readall"><button type="button" class="link" data-all="1">All read</button><button type="button" class="link" data-all="0">None read</button></p>
+      <div class="readlist">${list.map(m => `<div class="readrow"><span>${esc(m.title)}</span>
+        <button type="button" class="pick ${ans[m.id] === true ? 'on' : ''}" data-r="${m.id}|1">Read</button>
+        <button type="button" class="pick ${ans[m.id] === false ? 'on' : ''}" data-r="${m.id}|0">Not yet</button></div>`).join('')}</div>`;
+    menu.className = ''; menu.innerHTML = `<button value="ok" class="primary" ${list.some(m => ans[m.id] === undefined) ? 'disabled' : ''}>Save</button>`;
+  };
+  body.onclick = e => {
+    const r = e.target.dataset.r, all = e.target.dataset.all;
+    if (r) { const [id, v] = r.split('|'); ans[id] = v === '1'; }
+    else if (all) list.forEach(m => ans[m.id] = all === '1');
+    else return;
+    const y = $('.readlist')?.scrollTop; draw(); if ($('.readlist')) $('.readlist').scrollTop = y;
+  };
+  draw(); d.showModal();
+  return new Promise(ok => d.onclose = () => { list.forEach(m => m.unread = !ans[m.id]); ok(); });
+}
 
 const EXTRA = Symbol('extra');
 // opts.extra: a second choice under the field ("Forgot password?", "No password"), returns EXTRA; opts.text: visible text instead of a hidden password
@@ -826,7 +920,7 @@ let restoreY = null;
 const place = () => { try { return JSON.parse(pref('place')) || {}; } catch { return {}; } };
 // y is the position inside the current chapter (0 = its start), so it survives font-size changes
 const savePlace = () => {
-  if (!key) return;
+  if (!key || hold) return;
   const sec = currentChapter(), y = sec ? (scrollY - sec.offsetTop) / sec.offsetHeight : 0;
   pref('place', JSON.stringify({ h: location.hash, y }));
   // each fic remembers where in its last chapter you stopped (saved encrypted with the archive, a moment after scrolling stops)
@@ -841,7 +935,7 @@ const currentChapter = () => [...document.querySelectorAll('section.chapter')].f
 /* Adds new works, or updates ones already in the library (same title and author, or the work given by id).
    Reading place, cover and series link are kept; new chapters are counted. */
 async function importFiles(files, id) {
-  const notes = [];
+  const notes = [], fresh = [];
   for (const f of files) {
     let parsed;
     try {
@@ -857,7 +951,7 @@ async function importFiles(files, id) {
     const old = id ? index.find(m => m.id === id) : index.find(m => sameWork(m, meta));
     const before = old ? old.count ?? parseInt(old.chapters) : 0, added = old ? work.chapters.length - before : 0;
     Object.assign(meta, { id: old?.id || crypto.randomUUID(), last: old?.last ?? null, readAt: old?.readAt, cover: old?.cover,
-      next: old?.next, rating: old?.rating, kudos: old?.kudos, hits: old?.hits, added: old?.added || Date.now(), count: work.chapters.length,
+      next: old?.next, rating: old?.rating, kudos: old?.kudos, hits: old?.hits, unread: old?.unread, added: old?.added || Date.now(), count: work.chapters.length,
       newFrom: added > 0 ? before : old?.newFrom });   // first new chapter, for the "new chapters" mark
     await put('w:' + meta.id, await seal(key, work));
     index = [meta, ...index.filter(m => m !== old)];
@@ -865,9 +959,11 @@ async function importFiles(files, id) {
     if (cover && !old?.cover) await storeCover(meta.id, await imageCanvas(cover)).catch(() => {});
     if (meta.kind === 'book' && !meta.cover) await storeCover(meta.id, textCover(meta.title, meta.author));
     if (parsed.note) notes.push(`${meta.title}: ${parsed.note}`);
+    if (!old) fresh.push(meta);
     notes.push(!old ? `Added: ${meta.title}` : added > 0 ? `${meta.title}: ${added} new chapter${added > 1 ? 's' : ''}` : `${meta.title}: no new chapters`);
   }
   await saveIndex();
+  if (fresh.length && !unreadOff()) { await askRead(fresh.filter(m => index.includes(m))); await saveIndex(); }
   const warn = notes.filter(n => / of \d+ chapters/.test(n));
   toast(warn.length ? warn.join(' · ') : notes.length > 2 ? `${notes.length} works added or updated` : notes.join(' · '), warn.length ? 15000 : 3500);
   id ? route() : location.hash === '' ? route() : location.hash = '';
@@ -889,7 +985,7 @@ async function joinWorks(keep, other, read) {
     }
   }
   if ((other.readAt || 0) > (keep.readAt || 0)) Object.assign(keep, { last: other.last, y: other.y, readAt: other.readAt });
-  for (const f of ['rating', 'kudos', 'hits', 'readMode', 'next']) if (keep[f] == null && other[f] != null) keep[f] = other[f];
+  for (const f of ['rating', 'kudos', 'hits', 'readMode', 'next', 'unread']) if (keep[f] == null && other[f] != null) keep[f] = other[f];
   if (other.added && (!keep.added || other.added < keep.added)) keep.added = other.added;
   if (!keep.cover && other.cover) { const c = await read('c:'); if (c) { await put('c:' + keep.id, await seal(key, c)); keep.cover = true; } }
   if (!await get('p:' + keep.id)) { const pj = await read('p:'); if (pj) await put('p:' + keep.id, await seal(key, pj)); }
@@ -940,14 +1036,15 @@ const actions = {
   // In-app full screen: hides only the app's own bar, so Chrome shows no "exit full screen" notice
   readMode: () => chooseMode(),
   defMode(v) { pref('readMode', v); route(); },
+  unreadOpt(v) { pref('unreadOff', v); route(); },
   async setStats(id) {   // AO3's downloaded files don't include kudos, so they can be typed in
     if (!pref('kudosHelp')) {   // explained once, the first time ever
-      alert("Unfortunately, the files AO3 lets you download don't include the number of kudos. " +
-        "To sort your fics by kudos, type the number in by hand (as it shows on AO3).");
+      await info('Kudos', `<p>The files AO3 lets you download don't include the number of kudos.</p>
+        <p>To sort your fics by kudos, look at the number on AO3 and enter it here yourself. You only need to do it once for each fic.</p>`);
       pref('kudosHelp', '1');
     }
     const m = index.find(x => x.id === id);
-    const v = prompt('Kudos (as on AO3). Leave empty to remove.', stat(m, 'Kudos') ?? '');
+    const v = await askKudos(stat(m, 'Kudos'));
     if (v === null) return;
     const n = parseInt(v.replace(/\D/g, ''));
     m.kudos = Number.isNaN(n) ? undefined : n;
@@ -1108,6 +1205,10 @@ const actions = {
     printJob.files = files; renderExport();
   },
   async newGroup() { if (await makeGroup()) route(); },
+  async toggleRead(id) {
+    const m = index.find(x => x.id === id); m.unread = !m.unread;
+    await saveIndex(); toast(m.unread ? 'Added to Not read yet' : 'Marked as read'); route();
+  },
   async renameGroup(id) {
     const g = groupById(id), name = prompt('New name for this collection', g.name);
     if (name?.trim()) { g.name = name.trim(); await saveGroups(); route(); }
@@ -1139,13 +1240,66 @@ document.addEventListener('click', e => {
   if (b) actions[b.dataset.do](b.dataset.arg);
 });
 const reading = () => location.hash.startsWith('#w/');
+
+/* Back inside a fic: the first Back goes to the start of the fic, the next one back to the list (at the spot you were in it).
+   Going to the start doesn't change where the fic remembers you stopped, until you start scrolling there yourself. */
+let hold = null;
+function appBack() {
+  if (!reading() || !reader) return false;
+  const [, id, ch] = location.hash.slice(1).split('/');
+  if (!+ch && scrollY < 40) return false;   // already at the start: leave the fic
+  hold = { id };
+  if (+ch) location.replace(`#w/${id}/0`); else { scrollTo(0, 0); updatePos(); }
+  return true;
+}
+addEventListener('touchmove', () => { if (hold && reading()) hold = null; }, { passive: true });
+// moving around inside one fic (chapters, next/previous) replaces the address instead of adding steps for Back
+const sameFic = h => reading() && h.split('/')[1] === location.hash.split('/')[1];
+document.addEventListener('click', e => {
+  const a = e.target.closest('a[href^="#w/"]');
+  if (a && !e.defaultPrevented && (sameFic(a.getAttribute('href')) || (a.closest('#tabbar') && reading()))) {
+    e.preventDefault(); location.replace(a.getAttribute('href'));
+  }
+});
+
+/* Tabs: a long press on a fic's title opens it in a tab at the bottom (the tab shows the title's first word, ✕ closes it).
+   Only random work ids are kept, nothing readable. */
+const tabIds = () => { try { return (JSON.parse(pref('tabs')) || []).filter(id => index.some(m => m.id === id)); } catch { return []; } };
+function drawTabs() {
+  const bar = $('#tabbar'), ids = tabIds(), cur = reading() && location.hash.split('/')[1];
+  bar.hidden = !ids.length; document.body.classList.toggle('hastabs', !!ids.length);
+  bar.innerHTML = ids.map(id => { const m = index.find(x => x.id === id), words = m.title.trim().split(/\s+/), word = (/^(the|a|an)$/i.test(words[0]) && words[1]) || words[0];
+    return `<span class="ftab ${id === cur ? 'on' : ''}"><button class="tx" data-tabx="${id}" aria-label="Close tab">✕</button><a href="#w/${id}/${m.last ?? 0}">${esc(word)}</a></span>`; }).join('');
+}
+function openTab(id) {
+  const ids = tabIds();
+  if (!ids.includes(id)) { ids.push(id); pref('tabs', JSON.stringify(ids)); }
+  drawTabs(); toast('Opened in a tab');
+}
+$('#tabbar').addEventListener('click', e => {
+  const id = e.target.dataset.tabx;
+  if (!id) return;
+  pref('tabs', JSON.stringify(tabIds().filter(x => x !== id))); drawTabs();
+});
+let pressT, pressed = false, pressAt;
+const pressTarget = e => e.target.closest('.blurb h4 a[href^="#w/"], a.book');
+main.addEventListener('pointerdown', e => {
+  const a = pressTarget(e); if (!a) return;
+  pressed = false; pressAt = [e.clientX, e.clientY];
+  clearTimeout(pressT);
+  pressT = setTimeout(() => { pressed = true; navigator.vibrate?.(20); openTab(a.getAttribute('href').split('/')[1]); }, 500);
+});
+main.addEventListener('pointermove', e => { if (pressAt && Math.hypot(e.clientX - pressAt[0], e.clientY - pressAt[1]) > 10) clearTimeout(pressT); });
+['pointerup', 'pointercancel'].forEach(t => main.addEventListener(t, () => { clearTimeout(pressT); pressAt = null; }));
+main.addEventListener('contextmenu', e => { if (pressTarget(e)) e.preventDefault(); });
+main.addEventListener('click', e => { if (pressed && pressTarget(e)) { e.preventDefault(); e.stopPropagation(); pressed = false; } }, true);
 // leaving the phone's full screen with Android's back gesture also brings the red bar back
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('full'); });
 main.addEventListener('dblclick', e => {   // double tap on the text toggles full screen
   if (reading() && !e.target.closest('a, button, select')) { getSelection().removeAllRanges(); actions.full(); }
 });
 main.addEventListener('change', e => {
-  if (e.target.matches('.chsel')) location.hash = e.target.value;
+  if (e.target.matches('.chsel')) location.replace('#' + e.target.value);
   if (e.target.matches('.grpsel')) (async () => {
     const wid = e.target.dataset.id, g = e.target.value === 'new' ? await makeGroup() : groupById(e.target.value);
     if (g) {
@@ -1194,14 +1348,24 @@ const size = k => +pref(k) || { fs: 12, ls: 12 }[k];
 const applySizes = () => ['fs', 'ls'].forEach(k => document.documentElement.style.setProperty('--' + k, size(k) + 'px'));
 
 /* ---------- Screens ---------- */
+/* Lists keep their scroll spot: coming back from a fic returns to where you were in the list */
+const listY = {}, isList = h => /^#?(|shelf|unread|groups|g\/.*|s\/.*)$/.test(h);
+let shownHash = null;
+const unreadOff = () => pref('unreadOff') === 'off';
 function route() {
   if (!key) return;
+  document.body.classList.toggle('nounread', unreadOff());
+  if (unreadOff() && location.hash === '#unread') return location.replace('#');
+  if (shownHash !== null && isList(shownHash)) listY[shownHash] = scrollY;
+  const here = shownHash = location.hash;
   const [view, id, ch] = location.hash.slice(1).split('/');
+  if (view !== 'w' || id !== hold?.id) hold = null;
+  drawTabs();
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === (view === 'g' || view === 's' ? 'groups' : view)));
   scrollTo(0, 0);
   updatePos();
   document.body.classList.remove('hide-bar');
-  $('#menu').hidden = !(view === '' || view === 'shelf');   // sorting and filtering exist only for Works and Bookshelf
+  $('#menu').hidden = !(view === '' || view === 'shelf' || view === 'unread');   // sorting and filtering exist only for Works and Bookshelf
   if ($('#menu').hidden) $('#menu').textContent = '☰';
   $('meta[name=theme-color]').content = view === 'w' ? '#ffffff' : '#990000';
   window.Native?.setBarColor(view === 'w' ? '#ffffff' : '#990000');
@@ -1216,15 +1380,18 @@ function route() {
     followChapters(); updatePos(); savePlace();
   });
   savePlace();
-  if (view === 'shelf') return showShelf();
-  if (view === 'groups') return showGroups();
   if (view === 'medals') return showMedals();
   if (view === 'export') return showExport(id);
-  if (view === 'g') return showGroup(id);
-  if (view === 's') return showSeries(decodeURIComponent(id));
   if (view === 'settings') return showSettings();
-  showList();
+  if (view === 'shelf') showShelf();
+  else if (view === 'unread') showUnread();
+  else if (view === 'groups') showGroups();
+  else if (view === 'g') showGroup(id);
+  else if (view === 's') showSeries(decodeURIComponent(id));
+  else showList();
+  backToListSpot(here);
 }
+const backToListSpot = h => { if (listY[h] && location.hash === h) { scrollTo(0, listY[h]); updatePos(); } };
 addEventListener('hashchange', route);
 
 function updatePos() {
@@ -1399,7 +1566,8 @@ const hasTag = (m, k) => { const i = k.indexOf('|'); return GROUPS[k.slice(0, i)
 const tagName = k => k.slice(k.indexOf('|') + 1);
 
 let shelfKind = '';   // bookshelf: '' = everything, 'book', 'fic'
-const inView = m => location.hash === '#shelf' ? !shelfKind || (shelfKind === 'book') === (m.kind === 'book') : m.kind !== 'book';
+const inView = m => location.hash === '#shelf' ? !shelfKind || (shelfKind === 'book') === (m.kind === 'book')
+  : location.hash === '#unread' ? m.unread : m.kind !== 'book';
 const countsOf = get => {   // [tag, number of works], most common first
   const c = {};
   index.filter(m => inView(m) && m.kind !== 'book').forEach(m => new Set(get(m)).forEach(t => c[t] = (c[t] || 0) + 1));
@@ -1486,6 +1654,7 @@ main.addEventListener('click', e => {
   const k = e.target.closest('.tag[data-k]')?.dataset.k;
   if (!k) return;
   filters.inc.clear(); filters.exc.clear(); filters.inc.add(k);
+  delete listY['']; shownHash = null;
   location.hash === '' ? route() : location.hash = '';
 });
 
@@ -1499,6 +1668,16 @@ function showList() {
   });
 }
 
+function showUnread() {
+  document.title = 'Not read yet';
+  toolbar(() => {
+    const list = filtered();
+    $('#out').innerHTML = `<h2 class="heading">${list.length} Work${list.length === 1 ? '' : 's'} not read yet</h2>
+      <ol class="works">${list.map(m => blurb(m)).join('')}</ol>` +
+      (list.length ? '' : '<p class="center muted">Nothing here. Fics you mark as "Not yet" when you add them show up here.</p>');
+  });
+}
+
 function showShelf() {
   document.title = 'Bookshelf';
   toolbar(async () => {
@@ -1507,6 +1686,8 @@ function showShelf() {
       ? `<div class="shelf">${list.map(m => `<a class="book" href="#w/${m.id}/${m.last ?? 0}"><img data-id="${m.id}" alt="${esc(m.title)}"></a>`).join('')}</div>`
       : '<p class="center muted">No covers yet. Open a work and tap "Cover" to add one.</p>';
     for (const img of main.querySelectorAll('img[data-id]')) img.src = await getCover(img.dataset.id);
+    await Promise.all([...main.querySelectorAll('img[data-id]')].map(i => i.decode?.().catch(() => {})));
+    backToListSpot('#shelf');
   });
 }
 
@@ -1532,8 +1713,9 @@ function followChapters() {
     if (j === n - 1) $('#workend').innerHTML = upNext(m);
   }
   const j = +currentChapter()?.dataset.ch;
-  if (j !== m.last) {   // scrolled into another chapter: remember it and keep the address and menu in step
-    m.last = j; m.readAt = Date.now(); saveIndex();
+  if (j !== reader.at) {   // scrolled into another chapter: remember it and keep the address and menu in step
+    reader.at = j;
+    if (!hold) { m.last = j; m.readAt = Date.now(); saveIndex(); }
     history.replaceState(null, '', `#w/${m.id}/${j}`);
     if ($('.chsel')) $('.chsel').value = `w/${m.id}/${j}`;
     document.title = m.title + ' - ' + chName(w.chapters[j], j);
@@ -1545,8 +1727,8 @@ async function showWork(id, ch) {
   if (!m) return location.hash = '';
   if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
   const w = cache.w, n = w.chapters.length, i = Math.min(+ch || 0, n - 1), c = w.chapters[i];
-  m.last = i; m.readAt = Date.now(); saveIndex();
-  reader = { m, w, upto: i };
+  if (hold?.id !== id) { m.last = i; m.readAt = Date.now(); saveIndex(); }
+  reader = { m, w, upto: i, at: i };
   document.title = m.title + (n === 1 ? '' : ' - ' + chName(c, i));
   const btn = (j, label) => `<li><a class="btn" href="#w/${id}/${j}">${label}</a></li>`;
   const dd = (l, v) => /^stats/i.test(l)
@@ -1572,6 +1754,7 @@ async function showWork(id, ch) {
         ${n > 1 ? `<option value="cover">${m.cover ? 'Change cover' : 'Add cover'}</option>` : ''}
         ${m.cover ? '<option value="uncover">Remove cover</option>' : ''}
         ${n > 1 ? '<option value="print">Print (Lulu)</option><option value="add">Update from a new file</option>' : ''}
+        ${unreadOff() ? '' : `<option value="toggleRead">${m.unread ? 'Mark as read' : 'Mark as not read yet'}</option>`}
         <option value="remove">Delete</option>
         <optgroup label="Collections">${groups.map(g => `<option value="grp:${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}
           <option value="grp:new">+ New collection</option></optgroup></select>
@@ -1594,8 +1777,9 @@ async function showWork(id, ch) {
 function showGroups() {
   document.title = 'Collections';
   main.innerHTML = `<div class="toolbar"><button data-do="newGroup">+ New Collection</button></div>
-    <h2 class="heading">${groups.length} Collection${groups.length === 1 ? '' : 's'}</h2>
-    <ul class="groups">${groups.map(g => `<li><a href="#g/${g.id}">${esc(g.name)}</a>
+    <h2 class="heading">${groups.length + !unreadOff()} Collection${groups.length + !unreadOff() === 1 ? '' : 's'}</h2>
+    <ul class="groups">${unreadOff() ? '' : `<li><a href="#unread">Not read yet</a> <span class="muted">${index.filter(m => m.unread).length} works</span></li>`}
+      ${groups.map(g => `<li><a href="#g/${g.id}">${esc(g.name)}</a>
       <span class="muted">${g.ids.length} work${g.ids.length === 1 ? '' : 's'}</span></li>`).join('')}</ul>
     ${groups.length ? '' : '<p class="center muted">No collections yet. Create one, then open a work and choose it under "More".</p>'}
     ${seriesNames().length ? `<h2 class="heading">Series</h2><p class="muted">Found automatically in AO3 works and EPUB books.</p>
@@ -1664,6 +1848,9 @@ function showSettings() {
       <div class="row"><span class="lbl">Fics open<small>A single fic can still be switched with its own Reading button</small></span>
         <span class="seg">${[['chapter', 'By chapter'], ['scroll', 'Continuous']].map(([v, l]) =>
           `<button data-do="defMode" data-arg="${v}" class="${defaultMode() === v ? 'on' : ''}">${l}</button>`).join('')}</span></div>
+      <div class="row"><span class="lbl">"Not read yet" list<small>Asks about each new fic, and adds the Unread tab</small></span>
+        <span class="seg">${[['', 'On'], ['off', 'Off']].map(([v, l]) =>
+          `<button data-do="unreadOpt" data-arg="${v}" class="${(pref('unreadOff') || '') === v ? 'on' : ''}">${l}</button>`).join('')}</span></div>
       ${stepper('fs', 'Text size: reading')}
       ${stepper('ls', 'Text size: works list &amp; bookshelf')}
     </div>
