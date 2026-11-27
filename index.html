@@ -74,6 +74,8 @@
   ul.tags li:not(:last-child)::after { content:", "; }
   ul.tags .warnings .tag { font-weight:bold; border:0; }
   blockquote.summary { margin:10px 0 0; }
+  main .toc-heading { display:none; }   /* AO3's hidden table-of-contents headings (Preface, Afterword…) */
+  .gctl .pos { font-weight:bold; min-width:0; }
   /* AO3 work skins aren't part of downloaded files, so the app draws the popular ones itself.
      iMessage-style texts (classes imessage / in / out / contact / time) */
   main dl.imessage { margin:0; padding:0; font-family:-apple-system, Roboto, Arial, sans-serif; }
@@ -326,6 +328,13 @@
   <p id="rdlg-err" class="rerr"></p>
   <menu><button value="">Cancel</button><button value="ok" class="primary">Save</button></menu>
 </form></dialog>
+<dialog id="pdlg" class="soft"><form method="dialog">
+  <h3>Move to place</h3>
+  <p class="center" id="pdlg-t"></p>
+  <input id="pdlg-n" class="numbox" inputmode="numeric" autocomplete="off">
+  <p id="pdlg-err" class="rerr"></p>
+  <menu><button value="">Cancel</button><button value="ok" class="primary">Move</button></menu>
+</form></dialog>
 <dialog id="idlg" class="soft"><form method="dialog">
   <h3 id="idlg-t"></h3><div id="idlg-m"></div>
   <menu><button value="ok" class="primary">Got it</button></menu>
@@ -367,7 +376,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = '1.0.29';   // shown in Settings and on the print screen, to check which version is running
+const APP_VERSION = '1.0.30';   // shown in Settings and on the print screen, to check which version is running
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main'), enc = new TextEncoder(), dec = new TextDecoder();
 let noPw = false, key = null, index = [], groups = [], cache = {}, covers = {}, hiddenAt = 0;
@@ -436,6 +445,20 @@ function askRating(now) {
       if (t && !(/^\d+(\.\d+)?$/.test(t) && v >= 1 && v <= 10)) { e.preventDefault(); err.textContent = 'Only a number from 1 to 10'; }
     };
     d.onclose = () => { const t = n.value.trim().replace(',', '.'); ok(d.returnValue !== 'ok' ? null : t ? Math.round(+t * 100) / 100 : ''); };
+  });
+}
+function askPlace(now, max) {
+  const d = $('#pdlg'), n = $('#pdlg-n'), err = $('#pdlg-err');
+  $('#pdlg-t').textContent = `Type a place from 1 to ${max} (1 = first in the collection)`;
+  n.value = now; n.placeholder = now; err.textContent = ''; d.returnValue = '';
+  d.showModal(); setTimeout(() => n.select(), 50);
+  return new Promise(ok => {
+    d.querySelector('form').onsubmit = e => {
+      if (e.submitter?.value !== 'ok') return;
+      const v = +n.value.trim();
+      if (!(Number.isInteger(v) && v >= 1 && v <= max)) { e.preventDefault(); err.textContent = `Only a number from 1 to ${max}`; }
+    };
+    d.onclose = () => ok(d.returnValue === 'ok' ? +n.value.trim() : null);
   });
 }
 function askKudos(now) {   // empty = no kudos number
@@ -575,6 +598,9 @@ async function saveFile(blob, name) {
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
     document.body.append(a); a.click(); a.remove(); return;
   }
+  Native.saveEnd(await toNative(blob, name));   // the app then asks where to save it
+}
+async function toNative(blob, name) {   // hands a file to the Android app in pieces
   const id = Native.saveBegin(name, blob.type || 'application/octet-stream'), step = 3 << 18;
   for (let i = 0; i < blob.size; i += step) {
     const b = new Uint8Array(await blob.slice(i, i + step).arrayBuffer());
@@ -582,8 +608,40 @@ async function saveFile(blob, name) {
     for (let j = 0; j < b.length; j += 0x8000) s += String.fromCharCode.apply(null, b.subarray(j, j + 0x8000));
     Native.saveChunk(id, btoa(s));
   }
-  Native.saveEnd(id);   // the app then asks where to save it
+  return id;
 }
+
+/* Automatic backup (Android app only): the same locked backup file, saved by itself into a folder on this phone
+   that you choose once. Nothing leaves the phone. The 3 newest are kept. */
+const canAutoBk = () => !!window.Native?.backupFolder;
+const autoBkFolder = () => canAutoBk() ? Native.backupFolder() : '';
+const AUTO_EVERY = { day: 864e5, week: 7 * 864e5 };
+let autoBkBusy = false, folderThen = null;
+async function backupBlob() {
+  const data = Object.fromEntries(Object.entries(await entries()).map(([k, v]) => [k, b64(v)]));
+  return new Blob([JSON.stringify({ app: 'my-library', v: 1, data })], { type: 'application/json' });
+}
+async function runAutoBackup(loud) {
+  if (autoBkBusy || !autoBkFolder()) return;
+  autoBkBusy = true;
+  if (loud) toast('Backing up…');
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const name = `My Archive backup ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}.json`;
+  try { Native.autoSaveEnd(await toNative(await backupBlob(), name)); } catch { autoBkBusy = false; }
+  window.onAutoBackupDone = ok => {
+    autoBkBusy = false;
+    if (ok) pref('autoBkAt', String(Date.now()));
+    if (loud || !ok) toast(ok ? 'Backup saved' : "Automatic backup couldn't be saved. Check the folder in ⚙ Settings", 5000);
+    if (location.hash === '#settings') route();
+  };
+}
+function autoBackupIfDue() {
+  const every = AUTO_EVERY[pref('autoBk')];
+  if (key && every && autoBkFolder() && Date.now() - (+pref('autoBkAt') || 0) > every - 36e5) runAutoBackup(false);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(autoBackupIfDue, 3000); });
+function pickBackupFolder(then) { folderThen = then; Native.pickBackupFolder(); }
+window.onBackupFolder = name => { const f = folderThen; folderThen = null; if (f) f(name); };
 document.addEventListener('click', e => {   // download links (print files) inside the Android app
   const a = e.target.closest?.('a[download]');
   if (!a || !window.Native) return;
@@ -972,6 +1030,7 @@ function enter() {
   restoreY = p.y;
   if ((p.h || '') !== location.hash) location.hash = p.h || ''; else route();
   importShared();
+  setTimeout(autoBackupIfDue, 4000);
   joinDoubles().then(n => { if (n) { toast(`${n} doubled fic${n > 1 ? 's were' : ' was'} joined into one`, 5000); route(); } });
 }
 
@@ -1200,11 +1259,27 @@ const actions = {
   },
   introAgain: () => showIntro(showWelcome),
   intro: () => showIntro(() => location.hash === '#settings' ? route() : location.hash = 'settings'),
+  autoBk(v) {   // Off / Daily / Weekly; the first time asks for the folder
+    if (!v) { pref('autoBk', ''); return route(); }
+    const on = () => { pref('autoBk', v); route(); runAutoBackup(true); };
+    if (autoBkFolder()) on(); else pickBackupFolder(name => name && on());
+  },
+  autoBkFolder: () => pickBackupFolder(name => { if (name) { route(); runAutoBackup(true); } }),
+  autoBkNow: () => runAutoBackup(true),
+  restoreAuto() {   // new phone: choose the backup folder once, the app finds the newest backup in it
+    pickBackupFolder(async name => {
+      if (!name) return;
+      const r = await fetch('/autobackup/latest').catch(() => null);
+      const data = r?.ok && readBackup(await r.text());
+      if (!data) return toast('No My Archive backup found in this folder. Choose the folder the backups were saved in', 6000);
+      for (const k in data) await put(k, data[k]);
+      pref('autoBk', 'week');   // keeps backing up to the same folder
+      start();
+    });
+  },
   async backup() {
     toast('Preparing backup…');
-    const data = Object.fromEntries(Object.entries(await entries()).map(([k, v]) => [k, b64(v)]));
-    const file = new File([JSON.stringify({ app: 'my-library', v: 1, data })],
-      `archive-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    const file = new File([await backupBlob()], `archive-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
     // Saved straight to Downloads: the phone's share sheet refused this file type and failed silently
     await saveFile(file, file.name);
     if (!window.Native) toast(`Backup saved to Downloads: ${file.name}`);
@@ -1293,6 +1368,13 @@ const actions = {
     if (j < 0 || j >= ids.length) return;
     [ids[i], ids[j]] = [ids[j], ids[i]]; await saveGroups(); route();
   },
+  async placeInGroup(arg) {   // type the fic's new place in the collection (1 = first)
+    const [gid, wid] = arg.split(','), ids = groupById(gid).ids, i = ids.indexOf(wid);
+    const v = await askPlace(i + 1, ids.length);
+    if (v === null || v === i + 1) return;
+    ids.splice(i, 1); ids.splice(v - 1, 0, wid);
+    await saveGroups(); toast(`Moved to place ${v}`); route();
+  },
   async leaveGroup(arg) {
     const [gid, wid] = arg.split(','), g = groupById(gid);
     g.ids = g.ids.filter(x => x !== wid); await saveGroups(); route();
@@ -1349,10 +1431,23 @@ function openTab(id) {
   if (!ids.includes(id)) { ids.push(id); pref('tabs', JSON.stringify(ids)); }
   drawTabs(); toast('Opened in a tab');
 }
+let tabReturn = null;   // where you were before opening a tab (a list spot or another fic)
 $('#tabbar').addEventListener('click', e => {
+  const a = e.target.closest('a');
+  if (a && !(reading() && tabIds().includes(location.hash.split('/')[1]))) tabReturn = location.hash;
   const id = e.target.dataset.tabx;
   if (!id) return;
-  pref('tabs', JSON.stringify(tabIds().filter(x => x !== id))); drawTabs();
+  const ids = tabIds(), i = ids.indexOf(id), cur = reading() && location.hash.split('/')[1];
+  ids.splice(i, 1); pref('tabs', JSON.stringify(ids));
+  if (cur !== id) return drawTabs();   // closing a tab you're not reading: nothing else changes
+  const next = ids[i - 1] ?? ids[i];
+  if (next) { const m = index.find(x => x.id === next); location.replace(`#w/${next}/${m.last ?? 0}`); }
+  else {
+    const back = tabReturn ?? cameFrom ?? '#'; tabReturn = null;
+    if (back === location.hash) drawTabs();
+    else if (back === cameFrom) history.back();   // the list you came from, at the spot you were in it
+    else location.replace(back || '#');
+  }
 });
 let pressT, pressed = false, pressAt;
 const pressTarget = e => e.target.closest('.blurb h4 a[href^="#w/"], a.book');
@@ -1502,7 +1597,11 @@ function chooseMode() {
   d.onclick = e => {
     const b = e.target.closest('.modecard');
     if (b) {
-      if (m) { m.readMode = b.dataset.mode === defaultMode() ? undefined : b.dataset.mode; saveIndex(); }
+      if (m) {
+        const sec = currentChapter();
+        if (sec && reading()) restoreY = Math.max(0, (scrollY - sec.offsetTop) / sec.offsetHeight);
+        m.readMode = b.dataset.mode === defaultMode() ? undefined : b.dataset.mode; saveIndex();
+      }
       pref('modeChosen', '1'); d.close(); route();
     }
     else if (e.target === d) { pref('modeChosen', '1'); d.close(); }   // tapping outside keeps the current way
@@ -1536,7 +1635,7 @@ const INTRO = [
     <p>Yes, it's a little more effort, but it's worth it: it's what keeps your archive completely private.</p>`],
   ['Your password', `<p>We recommend locking your archive with a password. If you'd rather not, you can skip it and add one later in ⚙ Settings.</p>
     <p>When you set a password, you'll get a <b>recovery code</b>: write it down. It's the only way back in if you forget the password.</p>
-    <p>Make a backup file from time to time (⚙ Settings). It's also how you move your archive to a new phone.</p>`],
+    <p>Back up your archive: turn on <b>automatic backup</b> in ⚙ Settings, or make a backup file yourself from time to time. It's also how you move your archive to a new phone.</p>`],
 ];
 function showIntro(done, i = 0) {
   const [title, body] = INTRO[i], last = i === INTRO.length - 1;
@@ -1557,6 +1656,7 @@ function showWelcome() {
     <p class="muted">Everything is stored encrypted on this phone only. Nothing is ever sent anywhere.</p>
     <button data-do="create">Create a new archive</button>
     <button data-do="restore">Restore from a backup file</button>
+    ${canAutoBk() ? '<button data-do="restoreAuto">Restore from automatic backup</button>' : ''}
     <p><button class="link" data-do="introAgain">How My Archive works</button></p></div>`;
 }
 
@@ -1800,7 +1900,7 @@ function followChapters() {
   const j = +currentChapter()?.dataset.ch;
   if (j !== reader.at) {   // scrolled into another chapter: remember it and keep the address and menu in step
     reader.at = j;
-    if (!hold) { m.last = j; m.readAt = Date.now(); saveIndex(); }
+    if (!hold) { m.last = j; m.y = 0; m.readAt = Date.now(); saveIndex(); savePlace(); }
     history.replaceState(null, '', `#w/${m.id}/${j}`);
     if ($('.chsel')) $('.chsel').value = `w/${m.id}/${j}`;
     document.title = m.title + ' - ' + chName(w.chapters[j], j);
@@ -1812,7 +1912,7 @@ async function showWork(id, ch) {
   if (!m) return location.hash = '';
   if (cache.id !== id) cache = { id, w: await unseal(key, await get('w:' + id)) };
   const w = cache.w, n = w.chapters.length, i = Math.min(+ch || 0, n - 1), c = w.chapters[i];
-  if (hold?.id !== id) { m.last = i; m.readAt = Date.now(); saveIndex(); }
+  if (hold?.id !== id) { if (m.last !== i) m.y = 0; m.last = i; m.readAt = Date.now(); saveIndex(); }
   reader = { m, w, upto: i, at: i };
   document.title = m.title + (n === 1 ? '' : ' - ' + chName(c, i));
   const btn = (j, label) => `<li><a class="btn" href="#w/${id}/${j}">${label}</a></li>`;
@@ -1840,8 +1940,8 @@ async function showWork(id, ch) {
         ${n > 1 ? '<option value="print">Print (Lulu)</option><option value="add">Update from a new file</option>' : ''}
         ${unreadOff() ? '' : `<option value="toggleRead">${m.unread ? 'Mark as read' : 'Mark as not read yet'}</option>`}
         <option value="remove">Delete</option>
-        <optgroup label="Collections">${groups.map(g => `<option value="grp:${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}
-          <option value="grp:new">+ New collection</option></optgroup></select>
+        ${groups.map(g => `<option value="grp:${g.id}">${g.ids.includes(id) ? '✓ ' : ''}${esc(g.name)}</option>`).join('')}
+        <option value="grp:new">+ New collection</option></select>
     </div>
     <div class="wrapper"><dl class="meta">${m.tags.map(([l, v]) =>
       `<dt class="${warn(l)}">${esc(l)}:</dt><dd class="${warn(l)}">${dd(l, v)}</dd>`).join('')}</dl></div>
@@ -1893,7 +1993,8 @@ function showGroup(id) {
       <li><button data-do="renameGroup" data-arg="${id}">Rename</button></li>
       <li><button data-do="deleteGroup" data-arg="${id}">Delete Collection</button></li>
     </ul>
-    <div id="out"><ol class="works">${works.map((m, i) => blurb(m, `<div class="gctl"><span class="muted">Order</span>
+    <div id="out"><ol class="works">${works.map((m, i) => blurb(m, `<div class="gctl">
+      <button class="pos" data-do="placeInGroup" data-arg="${id},${m.id}">Place ${i + 1}</button>
       <button data-do="moveInGroup" data-arg="${id},${m.id},-1" ${i ? '' : 'disabled'}>↑</button>
       <button data-do="moveInGroup" data-arg="${id},${m.id},1" ${i < works.length - 1 ? '' : 'disabled'}>↓</button>
       <button data-do="leaveGroup" data-arg="${id},${m.id}">Remove</button></div>`)).join('')}</ol></div>
@@ -1945,6 +2046,19 @@ function showSettings() {
         Send it to yourself any way you like (cable, Drive, WhatsApp). On the new phone, open the app and choose "Restore from a backup file".</p>
       ${row('backup', 'Create a backup file')}
       ${row('merge', 'Add works from a backup file', "Fics you already have aren't added twice")}
+    </div>
+
+    <h2>Automatic backup</h2>
+    <div class="card">
+      ${canAutoBk() ? `<p class="note">Saves a backup file by itself into a folder on this phone that you choose. Nothing leaves the phone, and the 3 newest backups are kept.
+        On a new phone: move the folder (for example with Smart Switch), then choose "Restore from automatic backup" when the app opens.</p>
+      ${noPw ? '<p class="note warn">Your archive has no password, so these backup files are not protected.</p>' : ''}
+      <div class="row"><span class="lbl">Back up automatically</span>
+        <span class="seg">${[['', 'Off'], ['day', 'Daily'], ['week', 'Weekly']].map(([v, l]) =>
+          `<button data-do="autoBk" data-arg="${v}" class="${(autoBkFolder() ? pref('autoBk') || '' : '') === v ? 'on' : ''}">${l}</button>`).join('')}</span></div>
+      ${autoBkFolder() ? `${row('autoBkFolder', 'Folder: ' + esc(autoBkFolder()), 'Tap to choose another folder')}
+        ${row('autoBkNow', 'Back up now', pref('autoBkAt') ? 'Last backup: ' + new Date(+pref('autoBkAt')).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : 'No backup yet')}` : ''}`
+      : '<p class="note">Automatic backup works in the Android app.</p>'}
     </div>
 
     <h2>Survivors' medal</h2>

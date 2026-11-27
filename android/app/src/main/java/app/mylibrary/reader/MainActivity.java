@@ -9,6 +9,8 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.content.SharedPreferences;
+import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.view.ViewGroup;
@@ -53,7 +55,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class MainActivity extends Activity {
     static final String HOST = "appassets.androidplatform.net";
-    static final int PICK = 1, SAVE = 2;
+    static final int PICK = 1, SAVE = 2, FOLDER = 3;
+    static final String BACKUP_PREFIX = "My Archive backup";
 
     WebView web;
     FrameLayout root;
@@ -95,6 +98,7 @@ public class MainActivity extends Activity {
         WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .addPathHandler("/shared/", this::sharedFile)
+                .addPathHandler("/autobackup/", p -> latestBackup())
                 .build();
 
         WebSettings s = web.getSettings();
@@ -215,6 +219,75 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* ---------- Automatic backup: a folder on this phone, chosen once (the app gets access to that folder only) ---------- */
+    SharedPreferences prefs() { return getSharedPreferences("backup", MODE_PRIVATE); }
+
+    Uri backupTree() {
+        String t = prefs().getString("tree", null);
+        if (t == null) return null;
+        Uri u = Uri.parse(t);
+        for (android.content.UriPermission p : getContentResolver().getPersistedUriPermissions())
+            if (p.getUri().equals(u) && p.isWritePermission()) return u;
+        return null;   // the permission is gone (folder deleted, or a new phone)
+    }
+
+    Uri treeDoc(Uri tree) { return DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)); }
+
+    String folderName() {
+        Uri tree = backupTree();
+        if (tree == null) return "";
+        try (Cursor c = getContentResolver().query(treeDoc(tree), new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) return c.getString(0);
+        } catch (Exception ignored) { }
+        return "Chosen folder";
+    }
+
+    /** The backup files in the folder, newest last (their names hold the date and time). */
+    List<String[]> backupFiles(Uri tree) {
+        List<String[]> out = new ArrayList<>();
+        Uri kids = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+        try (Cursor c = getContentResolver().query(kids, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            while (c != null && c.moveToNext()) {
+                String name = c.getString(1);
+                if (name != null && name.startsWith(BACKUP_PREFIX) && name.endsWith(".json")) out.add(new String[]{c.getString(0), name});
+            }
+        } catch (Exception ignored) { }
+        out.sort((a, b) -> a[1].compareTo(b[1]));
+        return out;
+    }
+
+    /** Serves the newest backup in the folder at /autobackup/latest (used when restoring on a new phone) */
+    WebResourceResponse latestBackup() {
+        try {
+            Uri tree = backupTree();
+            List<String[]> files = backupFiles(tree);
+            String[] last = files.get(files.size() - 1);
+            InputStream in = getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, last[0]));
+            return new WebResourceResponse("application/json", "utf-8", in);
+        } catch (Exception e) {
+            return new WebResourceResponse("text/plain", "utf-8", 404, "Not found", null, null);
+        }
+    }
+
+    void writeAutoBackup(Job job) {
+        boolean ok = false;
+        try {
+            Uri tree = backupTree();
+            Uri doc = DocumentsContract.createDocument(getContentResolver(), treeDoc(tree), "application/json", job.name);
+            try (InputStream in = new FileInputStream(job.file); OutputStream out = getContentResolver().openOutputStream(doc)) {
+                byte[] buf = new byte[1 << 16];
+                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            }
+            ok = true;
+            List<String[]> files = backupFiles(tree);   // keep the 3 newest
+            for (int i = 0; i < files.size() - 3; i++)
+                DocumentsContract.deleteDocument(getContentResolver(), DocumentsContract.buildDocumentUriUsingTree(tree, files.get(i)[0]));
+        } catch (Exception ignored) { }
+        job.file.delete();
+        final boolean done = ok;
+        runOnUiThread(() -> web.evaluateJavascript("window.onAutoBackupDone && onAutoBackupDone(" + done + ")", null));
+    }
+
     void setBarsHidden(boolean on) {
         immersive = on;
         if (on) bars.hide(WindowInsetsCompat.Type.systemBars());
@@ -257,6 +330,19 @@ public class MainActivity extends Activity {
             }
             if (fileCallback != null) fileCallback.onReceiveValue(picked);
             fileCallback = null;
+        } else if (request == FOLDER) {
+            Uri tree = result == RESULT_OK && data != null ? data.getData() : null;
+            if (tree != null) {
+                try {
+                    getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    String old = prefs().getString("tree", null);
+                    if (old != null && !old.equals(tree.toString()))
+                        try { getContentResolver().releasePersistableUriPermission(Uri.parse(old), Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION); } catch (Exception ignored) { }
+                    prefs().edit().putString("tree", tree.toString()).apply();
+                } catch (Exception e) { tree = null; }
+            }
+            String name = tree == null ? "" : folderName().replace("\\", "").replace("'", "\\'");
+            web.evaluateJavascript("window.onBackupFolder && onBackupFolder('" + name + "')", null);
         } else if (request == SAVE) {
             Job job = toSave.poll();
             choosing = false;
@@ -343,6 +429,28 @@ public class MainActivity extends Activity {
             try (FileOutputStream out = new FileOutputStream(job.file, true)) {
                 out.write(Base64.decode(base64, Base64.DEFAULT));
             } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface
+        public String backupFolder() { return folderName(); }
+
+        @JavascriptInterface
+        public void pickBackupFolder() {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                if (Build.VERSION.SDK_INT >= 26)   // start in Documents
+                    i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents"));
+                try { startActivityForResult(i, FOLDER); }
+                catch (ActivityNotFoundException e) { web.evaluateJavascript("window.onBackupFolder && onBackupFolder('')", null); }
+            });
+        }
+
+        @JavascriptInterface
+        public void autoSaveEnd(String id) {   // writes a finished backup into the folder, by itself
+            Job job = saving.remove(id);
+            if (job == null) return;
+            new Thread(() -> writeAutoBackup(job)).start();
         }
 
         @JavascriptInterface
